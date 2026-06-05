@@ -44,10 +44,11 @@ router.post('/', async (req, res) => {
 
   let browser;
   try {
+    const launchArgs = ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'];
     try {
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ headless: true, args: launchArgs });
     } catch {
-      browser = await chromium.launch({ headless: true, channel: 'chrome' });
+      browser = await chromium.launch({ headless: true, channel: 'chrome', args: launchArgs });
     }
 
     const context = await browser.newContext({

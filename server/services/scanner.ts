@@ -2,13 +2,15 @@ import { chromium, type Page } from 'playwright';
 import type { ScannedElement, SelectorSet, ScanResponse } from '../types.js';
 
 export async function scanUrl(url: string): Promise<ScanResponse> {
-  // Try Playwright's bundled Chromium first, fall back to system Chrome
+  // Docker/Linux requires --no-sandbox and --disable-dev-shm-usage
+  const launchArgs = ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'];
+
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, args: launchArgs });
   } catch {
     console.log('⚠️  Bundled Chromium not found, using system Chrome...');
-    browser = await chromium.launch({ headless: true, channel: 'chrome' });
+    browser = await chromium.launch({ headless: true, channel: 'chrome', args: launchArgs });
   }
   const context = await browser.newContext({
     userAgent:
