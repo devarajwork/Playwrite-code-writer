@@ -1,6 +1,9 @@
 # Use Playwright base image with all browsers installed
 FROM mcr.microsoft.com/playwright:v1.49.0-noble
 
+# Tell the Playwright npm package to use the browsers pre-installed in this Docker image
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 # Set working directory
 WORKDIR /app
 
