@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Playwright Test Builder — Visual test step editor with element scanner and TypeScript code generator" />
+  <title>🎭 Playwright Test Builder</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="./styles/index.css" />
+  <link rel="stylesheet" href="./styles/step-builder.css" />
+  <link rel="stylesheet" href="./styles/element-scanner.css" />
+  <link rel="stylesheet" href="./styles/code-preview.css" />
+  <link rel="stylesheet" href="./styles/runner.css" />
+</head>
+<body>
+  <!-- Top Toolbar -->
+  <header class="toolbar" id="toolbar">
+    <div class="toolbar__brand">
+      <span class="toolbar__logo">🎭</span>
+      <h1 class="toolbar__title">Playwright Test Builder</h1>
+    </div>
+    <div class="toolbar__controls">
+      <div class="toolbar__input-group">
+        <label for="test-name-input" class="toolbar__label">Test Name</label>
+        <input type="text" id="test-name-input" class="toolbar__input" placeholder="e.g. User Login Flow" value="Jugl Login Test" />
+      </div>
+      <div class="toolbar__input-group toolbar__input-group--wide">
+        <label for="url-input" class="toolbar__label">Target URL</label>
+        <div class="toolbar__url-wrapper">
+          <input type="url" id="url-input" class="toolbar__input toolbar__input--url" placeholder="https://web-dev.jugl.com/" value="https://web-dev.jugl.com/" />
+          <button id="scan-btn" class="btn btn--primary btn--scan">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            Scan Elements
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="toolbar__actions">
+      <button id="run-btn" class="btn btn--primary" title="Run test programmatically">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Run Test
+      </button>
+      <button id="generate-btn" class="btn btn--accent" title="Generate TypeScript code">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg>
+        Generate
+      </button>
+      <button id="save-btn" class="btn btn--success" title="Save test file">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+        Save
+      </button>
+      <button id="clear-btn" class="btn btn--ghost" title="Clear all steps">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        Clear
+      </button>
+      <button id="settings-btn" class="btn btn--ghost" title="Settings" style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </button>
+    </div>
+  </header>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Main Content - Three Panels -->
+  <main class="panels" id="panels">
+    <!-- LEFT PANEL: Step Builder -->
+    <section class="panel panel--steps" id="step-panel">
+      <div class="panel__header">
+        <h2 class="panel__title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          Test Steps
+        </h2>
+        <span class="panel__badge" id="step-count">0</span>
+      </div>
+      <div class="panel__content" id="steps-container">
+        <div class="empty-state" id="empty-steps">
+          <div class="empty-state__icon">📋</div>
+          <p class="empty-state__text">No test steps yet</p>
+          <p class="empty-state__subtext">Add steps below or pick elements from the scanner</p>
+        </div>
+      </div>
+      <div class="panel__footer">
+        <button id="add-step-btn" class="btn btn--add-step">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Step
+        </button>
+      </div>
+    </section>
+
+    <!-- CENTER PANEL: Element Scanner / Interactive Inspector -->
+    <section class="panel panel--scanner" id="scanner-panel">
+      <div class="panel__header">
+        <h2 class="panel__title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          Element Inspector
+          <span class="panel__badge" id="element-count">0</span>
+        </h2>
+        <button id="open-live-inspector-btn" class="btn btn--secondary btn--small" style="display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); height: 28px; padding: 0 var(--space-3);" title="Open interactive visual click inspector in a new tab">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open Visual Inspector
+        </button>
+      </div>
+
+      <!-- SCANNED LIST TAB PANEL -->
+      <div id="scanned-list-panel" style="display: flex; flex-direction: column; height: 100%; overflow: hidden;">
+        <div class="scanner__filters" id="scanner-filters">
+          <input type="text" id="element-search" class="scanner__search" placeholder="Search elements by ID, text, class..." />
+          <div class="scanner__tags" id="filter-tags">
+            <button class="tag tag--active" data-filter="all">All</button>
+            <button class="tag" data-filter="button">Buttons</button>
+            <button class="tag" data-filter="input">Inputs</button>
+            <button class="tag" data-filter="a">Links</button>
+            <button class="tag" data-filter="select">Selects</button>
+            <button class="tag" data-filter="heading">Headings</button>
+            <button class="tag" data-filter="other">Other</button>
+          </div>
+        </div>
+        <div class="panel__content" id="elements-container">
+          <div class="empty-state" id="empty-scanner">
+            <div class="empty-state__icon">🔍</div>
+            <p class="empty-state__text">No elements scanned</p>
+            <p class="empty-state__subtext">Enter a URL and click "Scan Elements" to discover page elements</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="scanner__loading hidden" id="scanner-loading">
+        <div class="spinner"></div>
+        <p>Scanning page elements...</p>
+      </div>
+    </section>
+
+    <!-- RIGHT PANEL: Code Preview -->
+    <section class="panel panel--code" id="code-panel">
+      <div class="panel__header">
+        <h2 class="panel__title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg>
+          Generated Code
+        </h2>
+        <div class="panel__actions">
+          <button id="copy-code-btn" class="btn btn--icon" title="Copy code">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <button id="download-btn" class="btn btn--icon" title="Download .spec.ts">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel__content code-preview__content" id="code-container">
+        <div class="empty-state" id="empty-code">
+          <div class="empty-state__icon">✨</div>
+          <p class="empty-state__text">No code generated yet</p>
+          <p class="empty-state__subtext">Add test steps and click "Generate" to create Playwright code</p>
+        </div>
+        <pre class="code-block hidden" id="code-block"><code class="code-block__code" id="code-output"></code></pre>
+      </div>
+    </section>
+  </main>
+
+  <!-- Add Step Modal -->
+  <div class="modal-overlay hidden" id="add-step-modal">
+    <div class="modal">
+      <div class="modal__header">
+        <h3 class="modal__title">Add Test Step</h3>
+        <button class="modal__close" id="modal-close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="form-group">
+          <label for="step-type" class="form-label">Step Type</label>
+          <select id="step-type" class="form-select">
+            <optgroup label="Navigation">
+              <option value="navigate">🌐 Navigate to URL</option>
+            </optgroup>
+            <optgroup label="Actions">
+              <option value="click">👆 Click</option>
+              <option value="dblclick">👆👆 Double Click</option>
+              <option value="fill">✏️ Fill / Type</option>
+              <option value="select">📋 Select Option</option>
+              <option value="check">☑️ Check</option>
+              <option value="uncheck">⬜ Uncheck</option>
+              <option value="hover">🖱️ Hover</option>
+              <option value="press">⌨️ Press Key</option>
+              <option value="scrollTo">📜 Scroll To</option>
+            </optgroup>
+            <optgroup label="Assertions">
+              <option value="assertVisible">👁️ Assert Visible</option>
+              <option value="assertText">📝 Assert Text</option>
+              <option value="assertValue">🔢 Assert Value</option>
+              <option value="assertUrl">🔗 Assert URL</option>
+            </optgroup>
+            <optgroup label="Utilities">
+              <option value="waitForSelector">⏳ Wait for Element</option>
+              <option value="screenshot">📸 Take Screenshot</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <div class="form-group" id="selector-group">
+          <label for="step-selector" class="form-label">Selector</label>
+          <input type="text" id="step-selector" class="form-input" placeholder="page.getByRole('button', { name: 'Submit' })" />
+          <div id="selector-choices-wrapper" class="hidden" style="margin-top: 8px; display: flex; align-items: center; gap: var(--space-2);">
+            <label for="selector-choices-dropdown" class="form-label" style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: 0; white-space: nowrap;">Selector Type:</label>
+            <select id="selector-choices-dropdown" class="form-select" style="padding: 4px var(--space-3); font-size: var(--text-xs); flex: 1; font-family: var(--font-mono); height: 32px; min-height: 32px;"></select>
+          </div>
+          <span class="form-hint">Use Playwright selectors or pick from scanned elements</span>
+        </div>
+
+        <div class="form-group" id="value-group">
+          <label for="step-value" class="form-label">Value</label>
+          <input type="text" id="step-value" class="form-input" placeholder="Enter value..." />
+        </div>
+
+        <div class="form-group">
+          <label for="step-description" class="form-label">Description <span class="form-optional">(optional)</span></label>
+          <input type="text" id="step-description" class="form-input" placeholder="e.g. Click the login button" />
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button id="modal-cancel" class="btn btn--ghost">Cancel</button>
+        <button id="modal-add" class="btn btn--primary">Add Step</button>
+      </div>
+    </div>
+  </div>
+  <!-- Live Runner Modal -->
+  <div class="modal-overlay hidden" id="runner-modal">
+    <div class="modal runner-modal">
+      <div class="modal__header">
+        <h3 class="modal__title">🎭 Live Test Runner</h3>
+        <button class="modal__close" id="runner-close">&times;</button>
+      </div>
+      <div class="runner-layout">
+        <!-- Logs Panel -->
+        <div class="runner-log-panel">
+          <div class="runner-summary-bar">
+            <div class="runner-stats">
+              <div class="runner-stat">
+                <span class="runner-stat__label">Total Steps</span>
+                <span class="runner-stat__value" id="runner-stat-total">0</span>
+              </div>
+              <div class="runner-stat">
+                <span class="runner-stat__label">Status</span>
+                <span class="runner-stat__value" id="runner-stat-status" style="color: var(--text-muted)">Idle</span>
+              </div>
+              <div class="runner-stat">
+                <span class="runner-stat__label">Duration</span>
+                <span class="runner-stat__value" id="runner-stat-duration">0ms</span>
+              </div>
+            </div>
+            <button id="runner-start-btn" class="btn btn--primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Re-run
+            </button>
+          </div>
+          <div class="runner-steps-list" id="runner-logs">
+            <!-- Dynamically populated step rows -->
+          </div>
+        </div>
+        <!-- Preview Panel -->
+        <div class="runner-preview-panel">
+          <div class="runner-preview-header">
+            <span class="runner-preview-title">Visual Viewport</span>
+          </div>
+          <div class="runner-preview-content" id="runner-preview-container">
+            <div class="runner-screenshot-placeholder" id="runner-preview-placeholder">
+              <span class="runner-screenshot-placeholder__icon">📸</span>
+              <span>Visual viewport screenshot will load when execution finishes</span>
+            </div>
+            
+            <!-- Mock Browser Loader -->
+            <div class="mock-browser hidden" id="runner-mock-browser" style="width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-lg);">
+              <div style="display: flex; align-items: center; padding: 8px 12px; background: var(--bg-panel-alt); border-bottom: 1px solid var(--border-subtle); gap: var(--space-3);">
+                <div style="display: flex; gap: 6px;">
+                  <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                  <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span>
+                  <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                </div>
+                <div style="flex: 1; display: flex; align-items: center; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 4px 10px; font-size: var(--text-xs); color: var(--text-secondary); font-family: var(--font-mono); gap: 6px;">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" stroke-width="2" style="flex-shrink: 0;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  <span id="mock-address-bar">https://web-dev.jugl.com/</span>
+                </div>
+              </div>
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-6); text-align: center; gap: var(--space-4); background: var(--bg-panel);">
+                <div class="browser-pulse" style="position: relative; width: 48px; height: 48px; flex-shrink: 0; margin-bottom: 4px;">
+                  <div style="position: absolute; inset: 0; border: 3px solid var(--accent-primary); border-radius: 50%; animation: pulse 2s infinite ease-in-out;"></div>
+                  <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px;">🌐</div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: var(--space-2);">
+                  <div id="mock-status-title" style="font-size: var(--text-sm); font-weight: var(--font-semibold); color: var(--text-primary);">Launching Headless Browser...</div>
+                  <div id="mock-status-desc" style="font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono)">Initializing chromium engine instance</div>
+                </div>
+                <div style="width: 180px; height: 4px; background: var(--border-subtle); border-radius: var(--radius-full); overflow: hidden;">
+                  <div id="mock-progress-bar" style="width: 25%; height: 100%; background: var(--accent-primary); border-radius: var(--radius-full); transition: width 0.5s ease;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="runner-screenshot-frame hidden" id="runner-screenshot-frame">
+              <img src="" class="runner-screenshot" id="runner-screenshot-img" alt="Test execution screen capture" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay hidden" id="settings-modal">
+    <div class="modal" style="max-width: 500px; min-height: auto; height: auto;">
+      <div class="modal__header">
+        <h3 class="modal__title">⚙️ Settings</h3>
+        <button class="modal__close" id="settings-close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="save-location-input" class="form-label">Test Save Location</label>
+          <div style="display: flex; gap: var(--space-2);">
+            <input type="text" id="save-location-input" class="form-input" placeholder="e.g. generated-tests" value="generated-tests" style="flex: 1;" />
+            <button id="save-location-browse-btn" class="btn btn--secondary" style="white-space: nowrap; height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0 var(--space-4);">
+              Browse...
+            </button>
+          </div>
+          <span class="form-hint" style="margin-top: var(--space-2);">Relative to project root (e.g. <code>generated-tests</code>, <code>tests</code>) or absolute path.</span>
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button id="settings-cancel" class="btn btn--ghost">Cancel</button>
+        <button id="settings-save" class="btn btn--primary">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

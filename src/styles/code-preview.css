@@ -1,0 +1,79 @@
+/* ============================================
+   Code Preview Panel
+   ============================================ */
+
+.code-preview__content {
+  padding: 0;
+  position: relative;
+}
+
+.code-preview__content .empty-state {
+  padding: var(--space-8) var(--space-4);
+}
+
+.code-block {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  background: #0d1117;
+  min-height: 100%;
+  overflow-x: auto;
+  counter-reset: line;
+}
+
+.code-block__code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.8;
+  color: #e6edf3;
+  white-space: pre;
+  display: block;
+}
+
+/* Syntax highlighting — GitHub dark theme */
+.code-block .kw   { color: #ff7b72; }   /* keywords: import, from, async, await, const */
+.code-block .fn   { color: #d2a8ff; }   /* function names */
+.code-block .str  { color: #a5d6ff; }   /* strings */
+.code-block .cmt  { color: #8b949e; font-style: italic; }  /* comments */
+.code-block .br   { color: #ffa657; }   /* brackets, braces */
+.code-block .op   { color: #79c0ff; }   /* operators */
+.code-block .type { color: #7ee787; }   /* types, test, expect */
+.code-block .num  { color: #79c0ff; }   /* numbers */
+.code-block .prop { color: #d2a8ff; }   /* properties / methods */
+
+/* Line numbers */
+.code-line {
+  display: block;
+  padding-left: 3.5em;
+  position: relative;
+}
+
+.code-line::before {
+  counter-increment: line;
+  content: counter(line);
+  position: absolute;
+  left: 0;
+  width: 2.5em;
+  text-align: right;
+  color: #484f58;
+  font-size: var(--text-xs);
+  user-select: none;
+  padding-right: var(--space-3);
+  border-right: 1px solid rgba(72, 79, 88, 0.3);
+}
+
+.code-line:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.code-line:hover::before {
+  color: var(--text-muted);
+}
+
+/* Copy / Download buttons in code panel header */
+.btn--icon.copied {
+  color: var(--color-success);
+}
+
+.btn--icon.copied svg {
+  animation: pulse 0.5s ease;
+}
