@@ -7,6 +7,7 @@ WORKDIR /app
 # Copy package files and install production dependencies
 COPY package.json package-lock.json ./
 RUN npm ci
+RUN npm install -g typescript
 
 # Copy the rest of the source code
 COPY . .

@@ -6,7 +6,7 @@ import runRouter from './routes/run.js';
 import proxyRouter from './routes/proxy.js';
 
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 // Middleware
 app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173'] }));
