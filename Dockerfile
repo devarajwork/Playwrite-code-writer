@@ -11,6 +11,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# Explicitly install Playwright browsers to ensure version match
+RUN npx playwright install chromium --with-deps
+
 # Install TypeScript and Vite globally so they are on PATH
 RUN npm install -g typescript vite
 

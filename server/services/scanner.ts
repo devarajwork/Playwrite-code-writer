@@ -3,15 +3,14 @@ import type { ScannedElement, SelectorSet, ScanResponse } from '../types.js';
 
 export async function scanUrl(url: string): Promise<ScanResponse> {
   // Docker/Linux requires --no-sandbox and --disable-dev-shm-usage
-  const launchArgs = ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'];
+  const launchArgs = [
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-setuid-sandbox',
+  ];
 
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: true, args: launchArgs });
-  } catch {
-    console.log('⚠️  Bundled Chromium not found, using system Chrome...');
-    browser = await chromium.launch({ headless: true, channel: 'chrome', args: launchArgs });
-  }
+  const browser = await chromium.launch({ headless: true, args: launchArgs });
   const context = await browser.newContext({
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

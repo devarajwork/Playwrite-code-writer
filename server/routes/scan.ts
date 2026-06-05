@@ -28,9 +28,11 @@ router.post('/', async (req, res) => {
     res.json(result);
   } catch (error: any) {
     console.error('❌ Scan error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({
       error: 'Failed to scan URL',
       details: error.message,
+      stack: error.stack,
     });
   }
 });
