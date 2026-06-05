@@ -6,13 +6,13 @@ WORKDIR /app
 
 # Copy package files and install production dependencies
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 # Copy the rest of the source code
 COPY . .
 
-# Build TypeScript (if a build script exists)
-RUN npm run build || echo "No build script"
+# Compile server TypeScript
+RUN npm run compile
 
 # Expose the port Render will use (default 10000)
 EXPOSE 10000
