@@ -4,18 +4,23 @@ FROM mcr.microsoft.com/playwright:v1.49.0-noble
 # Set working directory
 WORKDIR /app
 
-# Copy package files and install production dependencies
+# Install all dependencies (dev needed for tsc + vite build)
 COPY package.json package-lock.json ./
 RUN npm ci
-RUN npm install -g typescript
+
+# Install TypeScript and Vite globally so they are on PATH
+RUN npm install -g typescript vite
 
 # Copy the rest of the source code
 COPY . .
 
-# Compile server TypeScript
-RUN npm run compile
+# Build Vite client → dist/client/
+RUN npx vite build
 
-# Expose the port Render will use (default 10000)
+# Compile server TypeScript → dist/server/
+RUN npx tsc
+
+# Expose port (Render sets $PORT automatically)
 EXPOSE 10000
 
 # Start the server
