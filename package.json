@@ -8,9 +8,10 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
+    "compile": "tsc",
     "test": "playwright test",
     "install:browsers": "playwright install chromium",
-    "start": "node server/index.js"
+    "start": "node dist/server/index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
