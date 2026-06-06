@@ -2,7 +2,7 @@
 // Playwright Test Builder — Main Application
 // ============================================
 
-import { scanUrl, generateCode, saveTest, runTestSteps, browseSaveLocation } from './utils/api.js';
+import { scanUrl, generateCode, saveTest, runTestSteps, browseSaveLocation, listSavedTests, loadSavedTest, getFrameworkStatus, getFrameworkScripts, runFramework } from './utils/api.js';
 import {
   generateId,
   showToast,
@@ -10,10 +10,12 @@ import {
   highlightCode,
   getBestSelector,
   STEP_TYPE_INFO,
+  parsePlaywrightScript,
 } from './utils/helpers.js';
 
 // ---- Application State ----
 const state = {
+  activeTags: [],
   steps: [],
   scannedElements: [],
   filteredElements: [],
@@ -24,6 +26,11 @@ const state = {
   editingStepId: null,
   settings: JSON.parse(localStorage.getItem('pw_builder_settings')) || {
     saveLocation: 'generated-tests',
+    frameworkPath: '',
+  },
+  fw: {
+    connected: false,
+    scripts: { setup: [], modules: [], legacy: [] },
   },
 };
 
@@ -31,23 +38,17 @@ const state = {
 const dom = {
   // Toolbar
   testNameInput: document.getElementById('test-name-input'),
+  testTagsInput: document.getElementById('test-tags-input'),
+  testTagsContainer: document.getElementById('test-tags-container'),
   urlInput: document.getElementById('url-input'),
   scanBtn: document.getElementById('scan-btn'),
-  generateBtn: document.getElementById('generate-btn'),
   saveBtn: document.getElementById('save-btn'),
-  clearBtn: document.getElementById('clear-btn'),
+  settingsBtn: document.getElementById('settings-btn'),
   // Step Panel
   stepsContainer: document.getElementById('steps-container'),
   stepCount: document.getElementById('step-count'),
   addStepBtn: document.getElementById('add-step-btn'),
   emptySteps: document.getElementById('empty-steps'),
-  // Scanner Panel
-  elementsContainer: document.getElementById('elements-container'),
-  elementCount: document.getElementById('element-count'),
-  elementSearch: document.getElementById('element-search'),
-  filterTags: document.getElementById('filter-tags'),
-  emptyScanner: document.getElementById('empty-scanner'),
-  scannerLoading: document.getElementById('scanner-loading'),
   // Code Panel
   codeContainer: document.getElementById('code-container'),
   codeBlock: document.getElementById('code-block'),
@@ -68,6 +69,11 @@ const dom = {
   selectorChoicesWrapper: document.getElementById('selector-choices-wrapper'),
   selectorChoicesDropdown: document.getElementById('selector-choices-dropdown'),
   valueGroup: document.getElementById('value-group'),
+  openModal: document.getElementById('open-modal'),
+  openClose: document.getElementById('open-close'),
+  openCancel: document.getElementById('open-cancel'),
+  openConfirm: document.getElementById('open-confirm'),
+  openFileSelect: document.getElementById('open-file-select'),
   // Live Runner
   runBtn: document.getElementById('run-btn'),
   runnerModal: document.getElementById('runner-modal'),
@@ -86,8 +92,6 @@ const dom = {
   runnerScreenshotFrame: document.getElementById('runner-screenshot-frame'),
   runnerScreenshotImg: document.getElementById('runner-screenshot-img'),
   // Interactive Inspector
-  scannedListPanel: document.getElementById('scanned-list-panel'),
-  openLiveInspectorBtn: document.getElementById('open-live-inspector-btn'),
   // Settings Modal
   settingsBtn: document.getElementById('settings-btn'),
   settingsModal: document.getElementById('settings-modal'),
@@ -96,27 +100,88 @@ const dom = {
   settingsSave: document.getElementById('settings-save'),
   saveLocationInput: document.getElementById('save-location-input'),
   saveLocationBrowseBtn: document.getElementById('save-location-browse-btn'),
+  frameworkPathInput: document.getElementById('framework-path-input'),
+  frameworkPathBrowseBtn: document.getElementById('framework-path-browse-btn'),
+  // Framework Run Modal
+  fwRunModal: document.getElementById('fw-run-modal'),
+  fwRunClose: document.getElementById('fw-run-close'),
+  fwOpenRunnerBtn: document.getElementById('fw-open-runner-btn'),
+  fwCopyLogsBtn: document.getElementById('fw-copy-logs-btn'),
+  
+  // Framework Panel
+  fwStatusDot: document.getElementById('fw-status-dot'),
+  fwStatusBadge: document.getElementById('fw-status-badge'),
+  fwAuthBadge: document.getElementById('fw-auth-badge'),
+  fwPathDisplay: document.getElementById('fw-path-display'),
+  fwExplorerTree: document.getElementById('fw-explorer-tree'),
+  fwNewFileBtn: document.getElementById('fw-new-file-btn'),
+  fwNewFolderBtn: document.getElementById('fw-new-folder-btn'),
+  fwRefreshTreeBtn: document.getElementById('fw-refresh-tree-btn'),
+  fwModuleSelect: document.getElementById('fw-module-select'),
+  fwRunAllBtn: document.getElementById('fw-run-all-btn'),
+  fwRunSetupBtn: document.getElementById('fw-run-setup-btn'),
+  fwRunModuleBtn: document.getElementById('fw-run-module-btn'),
+  fwTerminal: document.getElementById('fw-terminal'),
+  fwRunStatus: document.getElementById('fw-run-status'),
+  fwOpenReportBtn: document.getElementById('fw-open-report-btn'),
 };
 
 // ---- Initialize ----
 function init() {
   bindEvents();
   updateStepTypeFields();
+  // Auto-connect framework if path was previously saved
+  if (state.settings.frameworkPath) {
+    checkFrameworkConnection();
+  }
 }
 
 function bindEvents() {
   // Toolbar
-  dom.scanBtn.addEventListener('click', handleScan);
-  dom.generateBtn.addEventListener('click', handleGenerate);
+  dom.scanBtn.addEventListener('click', () => {
+    const url = dom.urlInput.value.trim();
+    if (url) {
+      window.open(`/api/proxy?url=${encodeURIComponent(url)}`, '_blank');
+    } else {
+      showToast('Please enter and scan a URL first', 'error');
+    }
+  });
   dom.saveBtn.addEventListener('click', handleSave);
-  dom.clearBtn.addEventListener('click', handleClear);
+
+  // Tags Pill Input
+  if (dom.testTagsInput) {
+    dom.testTagsInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const val = dom.testTagsInput.value.trim();
+        if (val) {
+          const tag = val.startsWith('@') ? val : '@' + val;
+          if (!state.activeTags.includes(tag)) {
+            state.activeTags.push(tag);
+            renderTags();
+            autoGenerate();
+            if (state.fw.connected) loadFrameworkTags();
+          }
+          dom.testTagsInput.value = '';
+        }
+      }
+    });
+    
+    // Allow deleting last tag with backspace if input is empty
+    dom.testTagsInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && dom.testTagsInput.value === '' && state.activeTags.length > 0) {
+        state.activeTags.pop();
+        renderTags();
+        autoGenerate();
+        if (state.fw.connected) loadFrameworkTags();
+      }
+    });
+  }
 
   // Step Builder
   dom.addStepBtn.addEventListener('click', () => openModal());
 
-  // Scanner Filters
-  dom.elementSearch.addEventListener('input', handleSearch);
-  dom.filterTags.addEventListener('click', handleFilterTag);
+
 
   // Code Panel
   dom.copyCodeBtn.addEventListener('click', handleCopyCode);
@@ -136,6 +201,13 @@ function bindEvents() {
     if (e.target === dom.modal) closeModal();
   });
 
+  dom.openClose.addEventListener('click', closeOpenModal);
+  dom.openCancel.addEventListener('click', closeOpenModal);
+  dom.openConfirm.addEventListener('click', handleOpenConfirm);
+  dom.openModal.addEventListener('click', (e) => {
+    if (e.target === dom.openModal) closeOpenModal();
+  });
+
   // Runner Modal
   dom.runBtn.addEventListener('click', handleRunTest);
   dom.runnerClose.addEventListener('click', closeRunnerModal);
@@ -144,25 +216,72 @@ function bindEvents() {
     if (e.target === dom.runnerModal) closeRunnerModal();
   });
 
+  // Framework Run Modal
+  dom.fwOpenRunnerBtn.addEventListener('click', () => {
+    dom.fwRunModal.classList.remove('hidden');
+  });
+  dom.fwRunClose.addEventListener('click', () => {
+    dom.fwRunModal.classList.add('hidden');
+  });
+  dom.fwRunModal.addEventListener('click', (e) => {
+    if (e.target === dom.fwRunModal) {
+      dom.fwRunModal.classList.add('hidden');
+    }
+  });
+
   // Settings Modal
   dom.settingsBtn.addEventListener('click', openSettingsModal);
   dom.settingsClose.addEventListener('click', closeSettingsModal);
   dom.settingsCancel.addEventListener('click', closeSettingsModal);
   dom.settingsSave.addEventListener('click', handleSaveSettings);
   dom.saveLocationBrowseBtn.addEventListener('click', handleBrowseSaveLocation);
+  dom.frameworkPathBrowseBtn.addEventListener('click', handleBrowseFrameworkPath);
   dom.settingsModal.addEventListener('click', (e) => {
     if (e.target === dom.settingsModal) closeSettingsModal();
   });
 
-  // Open target site in full page tab
-  dom.openLiveInspectorBtn.addEventListener('click', () => {
-    const url = dom.urlInput.value.trim();
-    if (url) {
-      window.open(`/api/proxy?url=${encodeURIComponent(url)}`, '_blank');
-    } else {
-      showToast('Please enter and scan a URL first', 'error');
-    }
+
+
+  // Framework panel
+  const fwRunTagSelect = document.getElementById('fw-run-tag-select');
+  const fwRunTagBtn = document.getElementById('fw-run-tag-btn');
+  
+  dom.fwRunAllBtn.addEventListener('click', () => handleFrameworkRun('all'));
+  dom.fwRunSetupBtn.addEventListener('click', () => handleFrameworkRun('setup'));
+  
+  if (fwRunTagBtn && fwRunTagSelect) {
+    fwRunTagBtn.addEventListener('click', () => {
+      const tag = fwRunTagSelect.value.trim();
+      if (!tag) { showToast('Select a tag first', 'error'); return; }
+      handleFrameworkRun('tag', tag);
+    });
+  }
+
+  dom.fwRunModuleBtn.addEventListener('click', () => {
+    const selectedOption = dom.fwModuleSelect.options[dom.fwModuleSelect.selectedIndex];
+    const mod = dom.fwModuleSelect.value;
+    const modPath = selectedOption ? selectedOption.dataset.filepath : '';
+    if (!mod) { showToast('Select a module first', 'error'); return; }
+    handleFrameworkRun('module', mod, modPath);
   });
+  dom.fwOpenReportBtn.addEventListener('click', () => {
+    window.open('/api/framework/report/index.html', '_blank');
+  });
+
+  if (dom.fwCopyLogsBtn) {
+    dom.fwCopyLogsBtn.addEventListener('click', async () => {
+      const text = dom.fwTerminal.innerText;
+      if (!text || text.includes('Terminal output will appear here')) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('Logs copied to clipboard!', 'success');
+      } catch (err) {
+        showToast('Failed to copy logs', 'error');
+      }
+    });
+  }
+
+
 
   // Listen to message events from proxy inspector iframe
   window.addEventListener('message', (e) => {
@@ -182,7 +301,6 @@ function bindEvents() {
 
 
 
-  // Keyboard shortcut: Escape closes modal
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (!dom.modal.classList.contains('hidden')) {
@@ -193,6 +311,9 @@ function bindEvents() {
       }
       if (!dom.settingsModal.classList.contains('hidden')) {
         closeSettingsModal();
+      }
+      if (!dom.openModal.classList.contains('hidden')) {
+        closeOpenModal();
       }
     }
   });
@@ -686,11 +807,13 @@ async function handleGenerate() {
     return;
   }
 
-  const testName = dom.testNameInput.value.trim() || 'Untitled Test';
+  const rawName = dom.testNameInput.value.trim() || 'Untitled Test';
+  const tags = state.activeTags.length > 0 ? state.activeTags.join(' ') : '';
+  const fullName = tags ? `${rawName} ${tags}` : rawName;
   const baseURL = dom.urlInput.value.trim();
 
   try {
-    const result = await generateCode(testName, '', state.steps, baseURL);
+    const result = await generateCode(fullName, '', state.steps, baseURL);
     state.generatedCode = result.code;
     renderCode(result.code);
     showToast('Code generated successfully!', 'success');
@@ -709,10 +832,36 @@ function autoGenerate() {
   }
 
   // Client-side generation for live preview
-  const testName = dom.testNameInput.value.trim() || 'Untitled Test';
-  const code = clientSideGenerate(testName, state.steps);
+  const rawName = dom.testNameInput.value.trim() || 'Untitled Test';
+  const tags = state.activeTags.length > 0 ? state.activeTags.join(' ') : '';
+  const fullName = tags ? `${rawName} ${tags}` : rawName;
+  
+  const code = clientSideGenerate(fullName, state.steps);
   state.generatedCode = code;
   renderCode(code);
+}
+
+function renderTags() {
+  if (!dom.testTagsContainer) return;
+  dom.testTagsContainer.innerHTML = '';
+  
+  state.activeTags.forEach((tag, index) => {
+    const pill = document.createElement('div');
+    pill.className = 'tag-pill';
+    pill.innerHTML = `
+      <span>${escapeHtml(tag)}</span>
+      <button title="Remove tag" data-index="${index}">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    `;
+    pill.querySelector('button').addEventListener('click', () => {
+      state.activeTags.splice(index, 1);
+      renderTags();
+      autoGenerate();
+      if (state.fw.connected) loadFrameworkTags();
+    });
+    dom.testTagsContainer.appendChild(pill);
+  });
 }
 
 function clientSideGenerate(testName, steps) {
@@ -740,19 +889,21 @@ function generateStepLine(step) {
   const { type, selector: sel, value: val } = step;
 
   const isLocator = sel.startsWith('page.');
-  const selectorExpr = isLocator ? sel : `page.locator('${sel}')`;
+  const safeSel = sel ? JSON.stringify(sel) : '""';
+  const safeVal = val ? JSON.stringify(val) : '""';
+  const selectorExpr = isLocator ? sel : `page.locator(${safeSel})`;
 
   switch (type) {
     case 'navigate':
-      return `await page.goto('${val || sel}');`;
+      return `await page.goto(${val ? safeVal : safeSel});`;
     case 'click':
       return `await ${selectorExpr}.click();`;
     case 'dblclick':
       return `await ${selectorExpr}.dblclick();`;
     case 'fill':
-      return `await ${selectorExpr}.fill('${val}');`;
+      return `await ${selectorExpr}.fill(${safeVal});`;
     case 'select':
-      return `await ${selectorExpr}.selectOption('${val}');`;
+      return `await ${selectorExpr}.selectOption(${safeVal});`;
     case 'check':
       return `await ${selectorExpr}.check();`;
     case 'uncheck':
@@ -760,23 +911,25 @@ function generateStepLine(step) {
     case 'hover':
       return `await ${selectorExpr}.hover();`;
     case 'press':
-      return `await ${selectorExpr}.press('${val}');`;
+      return `await ${selectorExpr}.press(${safeVal});`;
     case 'scrollTo':
       return `await ${selectorExpr}.scrollIntoViewIfNeeded();`;
     case 'waitForSelector':
       return isLocator
         ? `await ${sel}.waitFor({ state: 'visible'${val ? `, timeout: ${val}` : ''} });`
-        : `await page.waitForSelector('${sel}'${val ? `, { timeout: ${val} }` : ''});`;
+        : `await page.waitForSelector(${safeSel}${val ? `, { timeout: ${val} }` : ''});`;
+    case 'waitForTimeout':
+      return `await page.waitForTimeout(${val || 1000});`;
     case 'assertVisible':
       return `await expect(${selectorExpr}).toBeVisible();`;
     case 'assertText':
-      return `await expect(${selectorExpr}).toContainText('${val}');`;
+      return `await expect(${selectorExpr}).toContainText(${safeVal});`;
     case 'assertValue':
-      return `await expect(${selectorExpr}).toHaveValue('${val}');`;
+      return `await expect(${selectorExpr}).toHaveValue(${safeVal});`;
     case 'assertUrl':
-      return `await expect(page).toHaveURL('${val}');`;
+      return `await expect(page).toHaveURL(${safeVal});`;
     case 'screenshot':
-      return `await page.screenshot({ path: '${val || 'screenshot.png'}', fullPage: true });`;
+      return `await page.screenshot({ path: ${val ? safeVal : '"screenshot.png"'}, fullPage: true });`;
     default:
       return `// Unknown: ${type}`;
   }
@@ -797,14 +950,71 @@ async function handleSave() {
     return;
   }
 
+  let codeToSave = state.generatedCode;
+  if (state.isRawCode) {
+    codeToSave = dom.codeOutput.textContent;
+  }
+
   const testName = dom.testNameInput.value.trim() || 'untitled-test';
   const filename = testName.replace(/\s+/g, '-').toLowerCase();
 
   try {
-    const result = await saveTest(filename, state.generatedCode, state.settings.saveLocation);
+    const result = await saveTest(filename, codeToSave, state.settings.saveLocation);
     showToast(`Saved as ${result.filename}`, 'success');
+    // Refresh tags if connected
+    if (state.fw.connected) {
+      loadFrameworkTags();
+    }
   } catch (err) {
     showToast(err.message || 'Failed to save', 'error');
+  }
+}
+
+async function handleOpenClick() {
+  dom.openModal.classList.remove('hidden');
+  dom.openFileSelect.innerHTML = '<option value="">Loading files...</option>';
+  try {
+    const data = await listSavedTests(state.settings.saveLocation);
+    if (!data.files || data.files.length === 0) {
+      dom.openFileSelect.innerHTML = '<option value="">No tests found in location</option>';
+      return;
+    }
+    dom.openFileSelect.innerHTML = data.files.map(f => `<option value="${f}">${f}</option>`).join('');
+  } catch (err) {
+    dom.openFileSelect.innerHTML = `<option value="">Error loading files</option>`;
+    showToast(err.message, 'error');
+  }
+}
+
+function closeOpenModal() {
+  dom.openModal.classList.add('hidden');
+}
+
+async function handleOpenConfirm() {
+  const file = dom.openFileSelect.value;
+  if (!file) return;
+  try {
+    const data = await loadSavedTest(file, state.settings.saveLocation);
+    const parsed = parsePlaywrightScript(data.content);
+    
+    state.steps = parsed.steps;
+    dom.testNameInput.value = parsed.testName;
+    state.activeTags = parsed.tags ? parsed.tags.split(' ').filter(t => t) : [];
+    renderTags();
+    if (dom.testTagsInput) {
+      dom.testTagsInput.value = '';
+    }
+    
+    // Find if there's a navigate step to update URL input
+    const navStep = state.steps.find(s => s.type === 'navigate');
+    if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
+    
+    renderSteps();
+    autoGenerate();
+    closeOpenModal();
+    showToast(`Loaded ${file}`, 'success');
+  } catch(err) {
+    showToast(err.message, 'error');
   }
 }
 
@@ -813,6 +1023,7 @@ async function handleSave() {
 // ============================================
 function openSettingsModal() {
   dom.saveLocationInput.value = state.settings.saveLocation || 'generated-tests';
+  dom.frameworkPathInput.value = state.settings.frameworkPath || '';
   dom.settingsModal.classList.remove('hidden');
 }
 
@@ -827,9 +1038,14 @@ function handleSaveSettings() {
     return;
   }
   state.settings.saveLocation = saveLocation;
+  state.settings.frameworkPath = dom.frameworkPathInput.value.trim();
   localStorage.setItem('pw_builder_settings', JSON.stringify(state.settings));
   closeSettingsModal();
   showToast('Settings saved successfully', 'success');
+  // Re-connect to framework if path changed
+  if (state.settings.frameworkPath) {
+    checkFrameworkConnection();
+  }
 }
 
 async function handleBrowseSaveLocation() {
@@ -847,6 +1063,24 @@ async function handleBrowseSaveLocation() {
   } finally {
     dom.saveLocationBrowseBtn.disabled = false;
     dom.saveLocationBrowseBtn.textContent = 'Browse...';
+  }
+}
+
+async function handleBrowseFrameworkPath() {
+  dom.frameworkPathBrowseBtn.disabled = true;
+  dom.frameworkPathBrowseBtn.textContent = 'Selecting...';
+
+  try {
+    const result = await browseSaveLocation();
+    if (!result.cancelled && result.path) {
+      dom.frameworkPathInput.value = result.path;
+      showToast('Framework directory selected', 'success');
+    }
+  } catch (err) {
+    showToast(err.message || 'Failed to select directory', 'error');
+  } finally {
+    dom.frameworkPathBrowseBtn.disabled = false;
+    dom.frameworkPathBrowseBtn.textContent = 'Browse...';
   }
 }
 
@@ -886,9 +1120,11 @@ function handleDownload() {
 }
 
 function handleClear() {
-  if (state.steps.length === 0) return;
+  if (state.steps.length === 0 && state.activeTags.length === 0) return;
 
   state.steps = [];
+  state.activeTags = [];
+  renderTags();
   state.generatedCode = '';
   renderSteps();
   dom.emptyCode.classList.remove('hidden');
@@ -1242,3 +1478,451 @@ function renderSelectorChoices(selectors, currentSelector = '') {
 
 // ---- Start ----
 init();
+
+// ============================================
+// FRAMEWORK MANAGER
+// ============================================
+
+function switchRightTab(tab) {
+  const isCode = tab === 'code';
+  dom.rightViewCode.style.display = isCode ? 'flex' : 'none';
+  dom.rightViewFramework.style.display = isCode ? 'none' : 'flex';
+
+  // Update tab styles
+  dom.tabCode.style.borderBottom = isCode ? '2px solid var(--accent-primary)' : '2px solid transparent';
+  dom.tabCode.style.color = isCode ? 'var(--text-primary)' : 'var(--text-muted)';
+  dom.tabFramework.style.borderBottom = isCode ? '2px solid transparent' : '2px solid var(--accent-primary)';
+  dom.tabFramework.style.color = isCode ? 'var(--text-muted)' : 'var(--text-primary)';
+
+  // Load scripts when switching to framework tab
+  if (!isCode && state.settings.frameworkPath) {
+    loadFrameworkScripts();
+  }
+}
+
+async function checkFrameworkConnection() {
+  const path = state.settings.frameworkPath;
+  if (!path) return;
+
+  try {
+    const status = await getFrameworkStatus(path);
+    state.fw.connected = status.connected;
+
+    if (status.connected) {
+      dom.fwStatusDot.style.background = 'var(--color-success)';
+      dom.fwStatusBadge.textContent = '✅ Connected';
+      dom.fwStatusBadge.style.color = 'var(--color-success)';
+      dom.fwStatusBadge.style.borderColor = 'rgba(16,185,129,0.3)';
+      dom.fwStatusBadge.style.background = 'rgba(16,185,129,0.1)';
+      dom.fwPathDisplay.textContent = status.path;
+
+      if (status.hasAuth) {
+        dom.fwAuthBadge.classList.remove('hidden');
+      } else {
+        dom.fwAuthBadge.classList.add('hidden');
+      }
+
+      await loadFrameworkTree();
+      await loadFrameworkTags();
+    } else {
+      dom.fwStatusDot.style.background = 'var(--color-danger)';
+      dom.fwStatusBadge.textContent = '❌ Not Connected';
+      dom.fwStatusBadge.style.color = 'var(--color-danger)';
+      dom.fwPathDisplay.textContent = status.error || 'Path not found or not a Playwright project';
+    }
+  } catch (err) {
+    dom.fwStatusBadge.textContent = '❌ Error';
+    dom.fwPathDisplay.textContent = err.message;
+  }
+}
+
+async function loadFrameworkTree() {
+  const path = state.settings.frameworkPath;
+  if (!path) return;
+
+  try {
+    const { getFrameworkTree } = await import('./utils/api.js');
+    const tree = await getFrameworkTree(path);
+    state.fw.tree = tree;
+
+    dom.fwExplorerTree.innerHTML = renderTree(tree);
+    bindTreeEvents();
+
+    // Re-populate module select for runner
+    updateModuleSelect(tree);
+
+  } catch (err) {
+    showToast('Failed to load framework tree: ' + err.message, 'error');
+    dom.fwExplorerTree.innerHTML = `<div class="fw-empty">Failed to load tree</div>`;
+  }
+}
+
+async function loadFrameworkTags() {
+  const path = state.settings.frameworkPath;
+  if (!path) return;
+
+  const tagSelect = document.getElementById('fw-run-tag-select');
+  if (!tagSelect) return;
+
+  try {
+    const { getFrameworkTags } = await import('./utils/api.js');
+    const backendTags = await getFrameworkTags(path);
+    
+    // Combine with currently active unsaved tags
+    const allTags = new Set([...backendTags, ...state.activeTags]);
+    const tags = Array.from(allTags).sort();
+    
+    if (tags && tags.length > 0) {
+      tagSelect.innerHTML = `<option value="">Select a tag (${tags.length} found)...</option>` + 
+        tags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    } else {
+      tagSelect.innerHTML = '<option value="">No tags found</option>';
+    }
+  } catch (err) {
+    console.error('Failed to load tags:', err);
+    tagSelect.innerHTML = '<option value="">Error loading tags</option>';
+  }
+}
+
+function renderTree(node) {
+  if (!node) return '';
+
+  if (node.type === 'folder') {
+    const childrenHtml = node.children ? node.children.map(renderTree).join('') : '';
+    // SVG chevron
+    const chevronSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>`;
+    
+    return `
+      <div class="vscode-tree-folder" data-path="${escapeHtml(node.path)}">
+        <div class="vscode-tree-item" data-type="folder" data-path="${escapeHtml(node.path)}">
+          <div class="vscode-tree-item-left">
+            <span class="vscode-chevron">${chevronSvg}</span>
+            <span>${escapeHtml(node.name)}</span>
+          </div>
+          <div class="vscode-tree-actions">
+            <button class="vscode-tree-btn vscode-tree-new-file" title="New File"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
+            <button class="vscode-tree-btn vscode-tree-new-folder" title="New Folder"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+            ${node.path !== 'tests' ? `
+            <button class="vscode-tree-btn vscode-tree-rename" title="Rename"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="vscode-tree-btn vscode-tree-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+            ` : ''}
+          </div>
+        </div>
+        <div class="vscode-tree-children">
+          ${childrenHtml}
+        </div>
+      </div>
+    `;
+  } else {
+    // File
+    return `
+      <div class="vscode-tree-item" data-type="file" data-path="${escapeHtml(node.path)}">
+        <div class="vscode-tree-item-left" style="padding-left:16px;">
+          <span class="vscode-tree-icon" style="color:#d25c27;font-size:10px;font-weight:bold;">TS</span>
+          <span style="color:#a8c7fa;">${escapeHtml(node.name)}</span>
+        </div>
+        <div class="vscode-tree-actions">
+          <button class="vscode-tree-btn vscode-tree-edit" title="Edit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="vscode-tree-btn vscode-tree-rename" title="Rename"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
+          <button class="vscode-tree-btn vscode-tree-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function updateModuleSelect(node) {
+  let files = [];
+  function gatherFiles(n) {
+    if (n.type === 'file' && (n.name.endsWith('.spec.ts') || n.name.endsWith('.setup.ts'))) {
+      files.push(n.path);
+    }
+    if (n.children) {
+      n.children.forEach(gatherFiles);
+    }
+  }
+  gatherFiles(node);
+  
+  if (files.length > 0) {
+    dom.fwModuleSelect.innerHTML = files.map(f => `<option value="${escapeHtml(f)}" data-filepath="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+  } else {
+    dom.fwModuleSelect.innerHTML = '<option value="">No tests found</option>';
+  }
+}
+
+function bindTreeEvents() {
+  const treeContainer = dom.fwExplorerTree;
+
+  // Global tree button listeners
+  dom.fwRefreshTreeBtn.onclick = () => {
+    loadFrameworkTree();
+    loadFrameworkTags();
+  };
+  
+  dom.fwNewFolderBtn.onclick = async () => {
+    const name = prompt('New Folder Name:');
+    if (!name) return;
+    try {
+      const { createFrameworkFolder } = await import('./utils/api.js');
+      await createFrameworkFolder(state.settings.frameworkPath, `tests/${name}`);
+      loadFrameworkTree();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
+  dom.fwNewFileBtn.onclick = async () => {
+    const name = prompt('New File Name (e.g. my-test.spec.ts):');
+    if (!name) return;
+    try {
+      const { createFrameworkFile } = await import('./utils/api.js');
+      await createFrameworkFile(state.settings.frameworkPath, `tests/${name}`, '// New Playwright Test\n');
+      loadFrameworkTree();
+      loadFrameworkTags();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
+  // Node listeners
+  treeContainer.querySelectorAll('.vscode-tree-item').forEach(el => {
+    // Expand/Collapse folders
+    if (el.dataset.type === 'folder') {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.vscode-tree-btn')) return; // Ignore if clicking action buttons
+        const chevron = el.querySelector('.vscode-chevron');
+        if (chevron) chevron.classList.toggle('collapsed');
+        const children = el.nextElementSibling;
+        if (children && children.classList.contains('vscode-tree-children')) {
+          children.classList.toggle('collapsed');
+        }
+      });
+    }
+
+    // Edit file
+    const editBtn = el.querySelector('.vscode-tree-edit');
+    if (editBtn) {
+      editBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const path = el.dataset.path; 
+        const parts = path.split('/');
+        const filename = parts.pop();
+        const folder = parts.slice(1).join('/'); 
+        loadScriptIntoBuilder(folder, filename);
+      });
+    }
+
+    // New File inside folder
+    const newFileBtn = el.querySelector('.vscode-tree-new-file');
+    if (newFileBtn) {
+      newFileBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const path = el.dataset.path;
+        const name = prompt(`New File Name in '${path}' (e.g. my-test.spec.ts):`);
+        if (!name) return;
+        try {
+          const { createFrameworkFile } = await import('./utils/api.js');
+          await createFrameworkFile(state.settings.frameworkPath, `${path}/${name}`, '// New Playwright Test\n');
+          loadFrameworkTree();
+        } catch (e) { showToast(e.message, 'error'); }
+      });
+    }
+    
+    // New Folder inside folder
+    const newFolderBtn = el.querySelector('.vscode-tree-new-folder');
+    if (newFolderBtn) {
+      newFolderBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const path = el.dataset.path;
+        const name = prompt(`New Folder Name in '${path}':`);
+        if (!name) return;
+        try {
+          const { createFrameworkFolder } = await import('./utils/api.js');
+          await createFrameworkFolder(state.settings.frameworkPath, `${path}/${name}`);
+          loadFrameworkTree();
+        } catch (e) { showToast(e.message, 'error'); }
+      });
+    }
+
+    // Rename
+    const renameBtn = el.querySelector('.vscode-tree-rename');
+    if (renameBtn) {
+      renameBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const oldPath = el.dataset.path;
+        const oldName = oldPath.split('/').pop();
+        const newName = prompt(`Rename '${oldName}' to:`, oldName);
+        if (!newName || newName === oldName) return;
+        
+        const newPath = oldPath.substring(0, oldPath.lastIndexOf('/') + 1) + newName;
+        try {
+          const { renameFrameworkItem } = await import('./utils/api.js');
+          await renameFrameworkItem(state.settings.frameworkPath, oldPath, newPath);
+          loadFrameworkTree();
+        } catch (err) { showToast(err.message, 'error'); }
+      });
+    }
+
+    // Delete
+    const deleteBtn = el.querySelector('.vscode-tree-delete');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const path = el.dataset.path;
+        if (confirm(`Are you sure you want to delete '${path}'? This cannot be undone.`)) {
+          try {
+            const { deleteFrameworkItem } = await import('./utils/api.js');
+            await deleteFrameworkItem(state.settings.frameworkPath, path);
+            loadFrameworkTree();
+          } catch (err) { showToast(err.message, 'error'); }
+        }
+      });
+    }
+  });
+}
+
+async function loadScriptIntoBuilder(folder, filename) {
+  const path = state.settings.frameworkPath;
+  if (!path) return;
+
+  try {
+    const subDir = folder ? `${path}\\tests\\${folder}` : `${path}\\tests`;
+    const { loadSavedTest: load } = await import('./utils/api.js');
+    const data = await load(filename, subDir);
+    const parsed = parsePlaywrightScript(data.content);
+
+    state.steps = parsed.steps;
+    dom.testNameInput.value = parsed.testName;
+
+    const navStep = state.steps.find(s => s.type === 'navigate');
+    if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
+
+    if (parsed.steps.length === 0 && data.content.trim().length > 0) {
+      // It's a hand-written or legacy script that can't be parsed into steps
+      state.isRawCode = true;
+      state.generatedCode = data.content;
+      dom.codeOutput.innerHTML = highlightCode(data.content);
+      dom.emptyCode.classList.add('hidden');
+      dom.codeBlock.classList.remove('hidden');
+      
+      // Update steps panel to show a message
+      dom.stepsContainer.innerHTML = '<div class="fw-empty" style="text-align:center;padding:20px;color:var(--text-muted);">This is a hand-written script.<br><br>It contains custom logic (loops, try/catch, etc.) and cannot be edited using the visual step builder.<br><br>You can view the code in the Code Preview tab.</div>';
+      dom.emptySteps.classList.add('hidden');
+      dom.stepCount.textContent = 'Raw';
+    } else {
+      state.isRawCode = false;
+      renderSteps();
+      autoGenerate();
+    }
+
+    // Switch to right panel to see code if it's raw, otherwise left panel
+    switchRightTab('code');
+    showToast(`✅ Loaded "${filename}" into builder`, 'success');
+  } catch (err) {
+    showToast('Failed to load script: ' + err.message, 'error');
+  }
+}
+
+function handleNewModuleTest() {
+  // Clear builder and configure save location to modules folder
+  state.steps = [];
+  state.generatedCode = '';
+  dom.testNameInput.value = 'New Module Test';
+  renderSteps();
+  dom.emptyCode.classList.remove('hidden');
+  dom.codeBlock.classList.add('hidden');
+
+  // Point save location to modules folder
+  if (state.settings.frameworkPath) {
+    state.settings.saveLocation = `${state.settings.frameworkPath}\\tests\\modules`;
+    localStorage.setItem('pw_builder_settings', JSON.stringify(state.settings));
+  }
+
+  // Switch to code tab so they can build
+  switchRightTab('code');
+  showToast('New module test ready — add steps and click Save', 'info');
+}
+
+async function handleFrameworkRun(script, moduleName = '', modulePath = '') {
+  const path = state.settings.frameworkPath;
+  if (!path) {
+    showToast('Framework path not configured. Go to ⚙️ Settings.', 'error');
+    return;
+  }
+  if (!state.fw.connected) {
+    showToast('Framework not connected. Check Settings → Framework Path.', 'error');
+    return;
+  }
+
+  const headedToggle = document.getElementById('fw-headed-toggle');
+  const headed = headedToggle ? headedToggle.checked : true;
+
+  // Reset terminal
+  dom.fwTerminal.innerHTML = '';
+  dom.fwRunStatus.textContent = 'Running...';
+  dom.fwRunStatus.style.color = 'var(--accent-primary)';
+  dom.fwOpenReportBtn.classList.add('hidden');
+
+  // Disable buttons
+  dom.fwRunAllBtn.disabled = true;
+  dom.fwRunSetupBtn.disabled = true;
+  dom.fwRunModuleBtn.disabled = true;
+
+  function appendLine(text, cls = 'fw-line-stdout') {
+    const line = document.createElement('div');
+    line.className = cls;
+    line.textContent = text;
+    dom.fwTerminal.appendChild(line);
+    dom.fwTerminal.scrollTop = dom.fwTerminal.scrollHeight;
+  }
+
+  try {
+    console.log('Running framework with headed:', headed);
+    const response = await runFramework(path, script, moduleName, modulePath, headed);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(trimmed.substring(6));
+          if (event.type === 'start') {
+            appendLine(`$ ${event.command}`, 'fw-line-info');
+          } else if (event.type === 'stdout') {
+            const text = event.line;
+            const cls = text.includes('passed') || text.includes('✓') ? 'fw-line-success'
+                      : text.includes('failed') || text.includes('✗') ? 'fw-line-error'
+                      : 'fw-line-stdout';
+            appendLine(text, cls);
+          } else if (event.type === 'stderr') {
+            appendLine(event.line, 'fw-line-stderr');
+          } else if (event.type === 'complete') {
+            const success = event.success;
+            appendLine(success ? '✅ Tests passed!' : `❌ Tests failed (exit ${event.exitCode})`,
+              success ? 'fw-line-success' : 'fw-line-error');
+            dom.fwRunStatus.textContent = success ? '✅ Passed' : '❌ Failed';
+            dom.fwRunStatus.style.color = success ? 'var(--color-success)' : 'var(--color-danger)';
+            dom.fwOpenReportBtn.classList.remove('hidden');
+          } else if (event.type === 'error') {
+            appendLine('Error: ' + event.message, 'fw-line-error');
+          }
+        } catch {}
+      }
+    }
+  } catch (err) {
+    appendLine('Error: ' + err.message, 'fw-line-error');
+    dom.fwRunStatus.textContent = '❌ Error';
+    dom.fwRunStatus.style.color = 'var(--color-danger)';
+  } finally {
+    dom.fwRunAllBtn.disabled = false;
+    dom.fwRunSetupBtn.disabled = false;
+    dom.fwRunModuleBtn.disabled = false;
+    // Refresh auth status after setup run
+    if (script === 'setup') checkFrameworkConnection();
+  }
+}

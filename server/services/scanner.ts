@@ -2,12 +2,24 @@ import { chromium, type Page } from 'playwright';
 import type { ScannedElement, SelectorSet, ScanResponse } from '../types.js';
 
 export async function scanUrl(url: string): Promise<ScanResponse> {
-  // Docker/Linux requires --no-sandbox and --disable-dev-shm-usage
+  // Docker/Linux + memory-saving flags for free tier hosting
   const launchArgs = [
     '--no-sandbox',
     '--disable-dev-shm-usage',
     '--disable-gpu',
     '--disable-setuid-sandbox',
+    '--no-zygote',
+    '--single-process',       // single renderer process — saves ~150MB RAM
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-default-apps',
+    '--disable-sync',
+    '--disable-translate',
+    '--hide-scrollbars',
+    '--metrics-recording-only',
+    '--mute-audio',
+    '--no-first-run',
+    '--safebrowsing-disable-auto-update',
   ];
 
   const browser = await chromium.launch({ headless: true, args: launchArgs });

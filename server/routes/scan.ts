@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { scanUrl } from '../services/scanner.js';
+import { scanUrlLightweight } from '../services/lightScanner.js';
 import type { ScanRequest } from '../types.js';
 
 const router = Router();
@@ -21,8 +21,8 @@ router.post('/', async (req, res) => {
       return;
     }
 
-    console.log(`🔍 Scanning: ${url}`);
-    const result = await scanUrl(url);
+    console.log(`🔍 Scanning (lightweight): ${url}`);
+    const result = await scanUrlLightweight(url);
     console.log(`✅ Found ${result.elementCount} elements on ${url}`);
 
     res.json(result);

@@ -72,6 +72,9 @@ function generateStepCode(step: TestStep): string {
       }
       return `await page.waitForSelector('${sel}'${value ? `, { timeout: ${value} }` : ''});`;
 
+    case 'waitForTimeout':
+      return `await page.waitForTimeout(${value || 1000});`;
+
     case 'assertVisible':
       return `await expect(${resolveSelector(sel)}).toBeVisible();`;
 

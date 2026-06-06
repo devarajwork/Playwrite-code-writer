@@ -131,9 +131,172 @@ export const STEP_TYPE_INFO = {
   press:           { emoji: '⌨️', label: 'Press Key',        needsSelector: true,  needsValue: true,  valuePlaceholder: 'Enter, Tab, Escape...' },
   scrollTo:        { emoji: '📜', label: 'Scroll To',        needsSelector: true,  needsValue: false, valuePlaceholder: '' },
   waitForSelector: { emoji: '⏳', label: 'Wait For',         needsSelector: true,  needsValue: true,  valuePlaceholder: 'Timeout in ms (optional)' },
+  waitForTimeout:  { emoji: '⏱️', label: 'Wait (Time)',      needsSelector: false, needsValue: true,  valuePlaceholder: 'Timeout in ms (e.g. 2000)' },
   assertVisible:   { emoji: '👁️', label: 'Assert Visible',   needsSelector: true,  needsValue: false, valuePlaceholder: '' },
   assertText:      { emoji: '📝', label: 'Assert Text',      needsSelector: true,  needsValue: true,  valuePlaceholder: 'Expected text...' },
   assertValue:     { emoji: '🔢', label: 'Assert Value',     needsSelector: true,  needsValue: true,  valuePlaceholder: 'Expected value...' },
   assertUrl:       { emoji: '🔗', label: 'Assert URL',       needsSelector: false, needsValue: true,  valuePlaceholder: 'Expected URL or pattern...' },
   screenshot:      { emoji: '📸', label: 'Screenshot',       needsSelector: false, needsValue: true,  valuePlaceholder: 'filename.png' },
 };
+
+/**
+ * Parse Playwright TypeScript code back into a list of TestStep objects.
+ */
+export function parsePlaywrightScript(code) {
+  const steps = [];
+  let testName = 'Imported Test';
+  let tags = '';
+  
+  const nameMatch = code.match(/test\(['"`](.*?)['"`]/);
+  if (nameMatch) {
+    let parsedName = nameMatch[1];
+    const tagsMatch = parsedName.match(/(@[\w-]+)/g);
+    if (tagsMatch) {
+      testName = parsedName.replace(/(@[\w-]+)/g, '').trim();
+      tags = tagsMatch.join(' ');
+    } else {
+      testName = parsedName;
+    }
+  }
+
+  // Extract steps inside the test body.
+  const bodyMatch = code.match(/test\(.*?,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{([\s\S]*?)\}\);/);
+  if (!bodyMatch) return { testName, tags, steps };
+  
+  const body = bodyMatch[1];
+  const lines = body.split('\n');
+  
+  let currentDescription = '';
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    if (line.startsWith('//')) {
+      currentDescription = line.substring(2).trim();
+      continue;
+    }
+    
+    // Default values
+    let type = '';
+    let selector = '';
+    let value = '';
+    
+    if (line.includes('page.goto(')) {
+      type = 'navigate';
+      const m = line.match(/goto\(['"`](.*?)['"`]/);
+      if (m) value = m[1];
+    } 
+    else if (line.includes('.click(')) {
+      type = 'click';
+      selector = extractLocator(line);
+    }
+    else if (line.includes('.dblclick(')) {
+      type = 'dblclick';
+      selector = extractLocator(line);
+    }
+    else if (line.includes('.fill(')) {
+      type = 'fill';
+      selector = extractLocator(line);
+      const m = line.match(/\.fill\(['"`](.*?)['"`]\)/);
+      if (m) value = m[1];
+    }
+    else if (line.includes('.selectOption(')) {
+      type = 'select';
+      selector = extractLocator(line);
+      const m = line.match(/\.selectOption\(['"`](.*?)['"`]\)/);
+      if (m) value = m[1];
+    }
+    else if (line.includes('.check(')) {
+      type = 'check';
+      selector = extractLocator(line);
+    }
+    else if (line.includes('.uncheck(')) {
+      type = 'uncheck';
+      selector = extractLocator(line);
+    }
+    else if (line.includes('.hover(')) {
+      type = 'hover';
+      selector = extractLocator(line);
+    }
+    else if (line.includes('.press(')) {
+      type = 'press';
+      selector = extractLocator(line);
+      const m = line.match(/\.press\(['"`](.*?)['"`]\)/);
+      if (m) value = m[1];
+    }
+    else if (line.includes('.scrollIntoViewIfNeeded(')) {
+      type = 'scrollTo';
+      selector = extractLocator(line);
+    }
+    else if (line.includes('expect(') && line.includes('.toBeVisible()')) {
+      type = 'assertVisible';
+      selector = extractLocatorFromExpect(line);
+    }
+    else if (line.includes('expect(') && line.includes('.toContainText(')) {
+      type = 'assertText';
+      selector = extractLocatorFromExpect(line);
+      const m = line.match(/\.toContainText\(['"`](.*?)['"`]\)/);
+      if (m) value = m[1];
+    }
+    else if (line.includes('expect(') && line.includes('.toHaveValue(')) {
+      type = 'assertValue';
+      selector = extractLocatorFromExpect(line);
+      const m = line.match(/\.toHaveValue\(['"`](.*?)['"`]\)/);
+      if (m) value = m[1];
+    }
+    else if (line.includes('expect(page).toHaveURL(')) {
+      type = 'assertUrl';
+      const m = line.match(/\.toHaveURL\((?:['"`\/](.*?)['"`\/])\)/);
+      if (m) value = m[1];
+    }
+    else if (line.includes('page.waitForSelector(')) {
+      type = 'waitForSelector';
+      const m = line.match(/waitForSelector\(['"`](.*?)['"`]/);
+      if (m) selector = m[1];
+      const tm = line.match(/timeout:\s*(\d+)/);
+      if (tm) value = tm[1];
+    }
+    else if (line.includes('page.waitForTimeout(')) {
+      type = 'waitForTimeout';
+      const m = line.match(/waitForTimeout\(\s*(\d+)\s*\)/);
+      if (m) value = m[1];
+    }
+    else if (line.includes('.waitFor({')) {
+      type = 'waitForSelector';
+      selector = extractLocator(line);
+      const tm = line.match(/timeout:\s*(\d+)/);
+      if (tm) value = tm[1];
+    }
+    else if (line.includes('page.screenshot(')) {
+      type = 'screenshot';
+      const m = line.match(/path:\s*['"`](.*?)['"`]/);
+      if (m) value = m[1];
+    }
+    
+    if (type) {
+      steps.push({
+        id: generateId(),
+        type,
+        selector,
+        value,
+        description: currentDescription,
+        order: steps.length
+      });
+      currentDescription = '';
+    }
+  }
+  return { testName, tags, steps };
+}
+
+function extractLocator(line) {
+  // Use greedy .* up to the action method call to handle nested parentheses
+  const m = line.match(/(page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))(?=\.(?:click|dblclick|fill|selectOption|check|uncheck|hover|press|scrollIntoViewIfNeeded))/);
+  return m ? m[1] : '';
+}
+
+function extractLocatorFromExpect(line) {
+  // Use greedy .* up to the closing parenthesis of expect()
+  const m = line.match(/expect\((page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))\)/);
+  return m ? m[1] : '';
+}

@@ -142,6 +142,12 @@ router.post('/', async (req, res) => {
             break;
           }
 
+          case 'waitForTimeout': {
+            const timeout = val ? parseInt(val, 10) : 1000;
+            await page.waitForTimeout(timeout);
+            break;
+          }
+
           case 'assertVisible': {
             const loc = resolveLocator(page, sel);
             const visible = await loc.isVisible({ timeout: 10000 });

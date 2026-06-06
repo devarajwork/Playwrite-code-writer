@@ -70,4 +70,5 @@ export interface ScanResponse {
   elementCount: number;
   elements: ScannedElement[];
   timestamp: string;
+  note?: string;
 }

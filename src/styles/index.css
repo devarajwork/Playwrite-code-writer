@@ -139,8 +139,8 @@ body {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-4) var(--space-6);
+  gap: var(--space-4);
+  padding: var(--space-4);
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border-subtle);
   height: var(--toolbar-height);
@@ -249,7 +249,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-family: var(--font-sans);
@@ -356,7 +356,7 @@ body {
    ============================================ */
 .panels {
   display: grid;
-  grid-template-columns: 1fr 1.1fr 1fr;
+  grid-template-columns: 1fr 1fr 1.2fr;
   gap: 1px;
   height: calc(100vh - var(--toolbar-height));
   background: var(--border-subtle);
@@ -682,4 +682,156 @@ body {
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+
+/* ============================================
+   File Explorer Tree
+   ============================================ */
+.vscode-tree {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  user-select: none;
+  color: #cccccc;
+}
+
+.vscode-tree-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 2px 0;
+  cursor: pointer;
+  position: relative;
+  line-height: 22px;
+}
+
+.vscode-tree-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.vscode-tree-item.selected {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.vscode-tree-item-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode-chevron {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  transition: transform 0.1s;
+}
+
+.vscode-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.vscode-tree-icon {
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vscode-tree-actions {
+  display: none;
+  gap: 2px;
+}
+
+.vscode-tree-item:hover .vscode-tree-actions {
+  display: flex;
+}
+
+.vscode-tree-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.vscode-tree-btn:hover {
+  color: #ccc;
+  background: rgba(255,255,255,0.1);
+}
+
+.vscode-tree-children {
+  margin-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.vscode-tree-children.collapsed {
+  display: none;
+}
+
+/* ============================================
+   Tag Pill Input Styles
+   ============================================ */
+.tag-input-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  min-height: 36px;
+}
+
+.tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-surface-hover);
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary-glow);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  font-weight: var(--font-medium);
+}
+
+.tag-pill button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+}
+
+.tag-pill button:hover {
+  color: var(--color-danger);
+}
+
+.tag-input-field {
+  flex: 1;
+  min-width: 120px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  outline: none;
 }

@@ -6,6 +6,7 @@ import scanRouter from './routes/scan.js';
 import generateRouter from './routes/generate.js';
 import runRouter from './routes/run.js';
 import proxyRouter from './routes/proxy.js';
+import frameworkRouter from './routes/framework.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +32,7 @@ app.use('/api/scan', scanRouter);
 app.use('/api/generate', generateRouter);
 app.use('/api/run', runRouter);
 app.use('/api/proxy', proxyRouter);
+app.use('/api/framework', frameworkRouter);
 
 // Catch-all reverse proxy middleware to fetch target site assets and APIs to bypass CORS
 app.use(async (req, res, next) => {
@@ -113,10 +115,6 @@ app.get('*', (_req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log('');
-  console.log('  🎭 Playwright Test Builder — Server');
-  console.log(`  ➜  Listening on port ${PORT}`);
-  console.log(`  ➜  API:    http://localhost:${PORT}/api`);
-  console.log(`  ➜  Health: http://localhost:${PORT}/api/health`);
-  console.log('');
+  console.log(`[server]: API running at http://localhost:${PORT}`);
+  console.log(`[server]: Framework manager enabled`); // reload trigger
 });

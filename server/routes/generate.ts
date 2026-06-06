@@ -93,4 +93,70 @@ router.post('/browse-folder', async (req, res) => {
   }
 });
 
+// List saved test files
+router.get('/files', async (req, res) => {
+  try {
+    const saveLocation = (req.query.location as string) || '';
+    let outputDir = join(projectRoot, 'generated-tests');
+    
+    if (saveLocation) {
+      if (isAbsolute(saveLocation)) {
+        outputDir = saveLocation;
+      } else {
+        outputDir = join(projectRoot, saveLocation);
+      }
+    }
+    
+    if (!existsSync(outputDir)) {
+      res.json({ files: [] });
+      return;
+    }
+
+    const { readdirSync } = await import('fs');
+    const files = readdirSync(outputDir)
+      .filter(f => f.endsWith('.spec.ts'));
+      
+    res.json({ files });
+  } catch (error: any) {
+    console.error('❌ List files error:', error.message);
+    res.status(500).json({ error: 'Failed to list files', details: error.message });
+  }
+});
+
+// Get specific file content
+router.get('/file', async (req, res) => {
+  try {
+    const saveLocation = (req.query.location as string) || '';
+    const name = (req.query.name as string);
+    
+    if (!name) {
+      res.status(400).json({ error: 'Filename is required' });
+      return;
+    }
+
+    let outputDir = join(projectRoot, 'generated-tests');
+    if (saveLocation) {
+      if (isAbsolute(saveLocation)) {
+        outputDir = saveLocation;
+      } else {
+        outputDir = join(projectRoot, saveLocation);
+      }
+    }
+    
+    const filePath = join(outputDir, name);
+    if (!existsSync(filePath)) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+
+    const { readFileSync } = await import('fs');
+    const content = readFileSync(filePath, 'utf-8');
+      
+    res.json({ content });
+  } catch (error: any) {
+    console.error('❌ Get file error:', error.message);
+    res.status(500).json({ error: 'Failed to get file', details: error.message });
+  }
+});
+
 export default router;

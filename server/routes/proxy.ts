@@ -127,12 +127,13 @@ router.get('/', async (req, res) => {
     await page.waitForTimeout(1000);
 
     let html = await page.content();
+    const actualUrl = page.url();
     
     // Clean, normalise, and proxy relative paths in HTML
-    html = cleanAndProxyHTML(html, url);
+    html = cleanAndProxyHTML(html, actualUrl);
 
     // Set cookie for target origin so subsequent asset requests know where to go
-    const targetOrigin = new URL(url).origin;
+    const targetOrigin = new URL(actualUrl).origin;
     res.setHeader('Set-Cookie', `proxy_target_origin=${encodeURIComponent(targetOrigin)}; Path=/; SameSite=Lax`);
 
     // Set base tag to our local proxy endpoint so relative scripts and styles resolve to localhost
