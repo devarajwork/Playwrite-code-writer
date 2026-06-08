@@ -2,7 +2,10 @@ import { Router } from 'express';
 import express from 'express';
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync, renameSync, writeFileSync, readFileSync } from 'fs';
 import { join, isAbsolute, dirname, basename } from 'path';
-import { spawn, ChildProcess, execSync } from 'child_process';
+import { spawn, ChildProcess, execSync, exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const router = Router();
 let activeFrameworkPath = '';
@@ -43,6 +46,11 @@ router.get('/status', (req, res) => {
 // ─── STATIC /api/framework/report ───────────────────────────────────────────
 // Serves the playwright HTML report
 router.use('/report', (req, res, next) => {
+  if (req.query.path) {
+    const p = resolveFrameworkPath(req.query.path as string);
+    if (p) activeFrameworkPath = p;
+  }
+
   if (!activeFrameworkPath) {
     res.status(404).send('No active framework connected. Please connect in the app first.');
     return;
@@ -308,9 +316,10 @@ router.get('/run', (req, res) => {
     res.status(400).json({ error: 'Invalid framework path' });
     return;
   }
+  activeFrameworkPath = resolved;
 
-  let cmd = 'npx';
-  let cmdArgs = ['playwright', 'test'];
+  let cmd = 'node';
+  let cmdArgs = ['node_modules/@playwright/test/cli.js', 'test'];
 
   if (script === 'setup') {
     cmdArgs.push('--project=setup');
@@ -321,12 +330,15 @@ router.get('/run', (req, res) => {
     
     let filterPattern = moduleName;
     if (modulePath) {
-      // If modulePath is provided (e.g. tests/modules/foo.spec.ts), strip the leading 'tests/' 
-      // so it matches correctly inside the Playwright testDir.
       if (modulePath.startsWith('tests/')) {
-        filterPattern = modulePath.substring(6); // remove 'tests/'
+        filterPattern = modulePath.substring(6);
       } else {
         filterPattern = modulePath;
+      }
+      // On Windows, the absolute path has backslashes, so a forward slash regex might fail.
+      // Replace forward slashes with the OS-specific separator
+      if (process.platform === 'win32') {
+        filterPattern = filterPattern.replace(/\//g, '\\\\');
       }
     }
     
@@ -355,7 +367,7 @@ router.get('/run', (req, res) => {
 
   const child = spawn(cmd, cmdArgs, {
     cwd: resolved,
-    shell: true,
+    shell: false,
     env: { ...process.env, FORCE_COLOR: '0' },
   });
 
@@ -438,6 +450,133 @@ router.get('/report', (req, res) => {
   const hasReport = existsSync(join(reportDir, 'index.html'));
 
   res.json({ hasReport, reportDir: hasReport ? reportDir : null });
+});
+
+// ─── POST /api/framework/git-push ───────────────────────────────────────────
+router.post('/git-push', async (req, res) => {
+  try {
+    const { frameworkPath, commitMessage } = req.body;
+    if (!frameworkPath) return res.status(400).json({ error: 'frameworkPath required' });
+
+    const msg = commitMessage || 'Update tests from Playwright Builder';
+    
+    // Chain the commands safely
+    const cmd = `git add . && git commit -m "${msg.replace(/"/g, '\\"')}" && git push`;
+    
+    const { stdout, stderr } = await execAsync(cmd, { cwd: frameworkPath });
+    res.json({ success: true, stdout, stderr });
+  } catch (error: any) {
+    // Note: if git commit fails because there are no changes, it throws an error in execAsync
+    res.status(500).json({ error: error.message, stdout: error.stdout, stderr: error.stderr });
+  }
+});
+
+async function getGithubRepoInfo(cwd: string): Promise<{owner: string, repo: string}> {
+  const { stdout } = await execAsync('git remote -v', { cwd });
+  const match = stdout.match(/origin\s+(?:https:\/\/github\.com\/|git@github\.com:)([^/]+)\/([^.\s]+)/);
+  if (!match) throw new Error('Could not determine GitHub repository from git remote -v. Ensure "origin" points to a github repo.');
+  return { owner: match[1], repo: match[2] };
+}
+
+router.get('/prs', async (req, res) => {
+  try {
+    const rawPath = (req.query.path as string) || '';
+    const resolved = resolveFrameworkPath(rawPath);
+    if (!resolved) return res.status(400).json({ error: 'Invalid framework path' });
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing GitHub Token' });
+
+    const { owner, repo } = await getGithubRepoInfo(resolved);
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/pulls?state=open`;
+
+    const fetchResponse = await fetch(apiUrl, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': authHeader,
+        'User-Agent': 'Playwright-Tester-App'
+      }
+    });
+
+    if (!fetchResponse.ok) {
+      const err = await fetchResponse.json().catch(() => ({}));
+      return res.status(fetchResponse.status).json({ error: err.message || 'GitHub API error' });
+    }
+
+    const data = await fetchResponse.json();
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/prs/create', async (req, res) => {
+  try {
+    const { frameworkPath, title, body, head, base } = req.body;
+    const resolved = resolveFrameworkPath(frameworkPath);
+    if (!resolved) return res.status(400).json({ error: 'Invalid framework path' });
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing GitHub Token' });
+
+    const { owner, repo } = await getGithubRepoInfo(resolved);
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/pulls`;
+
+    const fetchResponse = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Playwright-Tester-App'
+      },
+      body: JSON.stringify({ title, body, head, base })
+    });
+
+    if (!fetchResponse.ok) {
+      const err = await fetchResponse.json().catch(() => ({}));
+      return res.status(fetchResponse.status).json({ error: err.message || 'GitHub API error' });
+    }
+
+    const data = await fetchResponse.json();
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/prs/merge', async (req, res) => {
+  try {
+    const { frameworkPath, pullNumber } = req.body;
+    const resolved = resolveFrameworkPath(frameworkPath);
+    if (!resolved) return res.status(400).json({ error: 'Invalid framework path' });
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Missing GitHub Token' });
+
+    const { owner, repo } = await getGithubRepoInfo(resolved);
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}/merge`;
+
+    const fetchResponse = await fetch(apiUrl, {
+      method: 'PUT',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Playwright-Tester-App'
+      }
+    });
+
+    if (!fetchResponse.ok) {
+      const err = await fetchResponse.json().catch(() => ({}));
+      return res.status(fetchResponse.status).json({ error: err.message || 'GitHub API error' });
+    }
+
+    const data = await fetchResponse.json();
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 export default router;

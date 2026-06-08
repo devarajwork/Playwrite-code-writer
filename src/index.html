@@ -149,11 +149,19 @@
 
     <!-- RIGHT PANEL: Framework Manager -->
     <section class="panel panel--framework" id="framework-panel">
-      <div class="panel__header">
+      <div class="panel__header" style="display:flex; justify-content:space-between; align-items:center;">
         <h2 class="panel__title">
           🎭 Framework Manager
+          <span id="fw-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text-muted);display:inline-block;margin-left:8px;"></span>
         </h2>
-        <span id="fw-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text-muted);display:inline-block;margin-left:8px;"></span>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <button id="fw-prs-btn" class="btn btn--ghost btn--small" title="Manage Pull Requests" style="display:flex; align-items:center; gap:4px; margin-right: 4px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg> PRs
+          </button>
+          <button id="fw-git-push-btn" class="btn btn--secondary btn--small" title="Push to Git" style="display:flex; align-items:center; gap:4px; margin-right: 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg> Git Push
+          </button>
+        </div>
       </div>
       <div class="panel__content" style="padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-5);">
 
@@ -446,17 +454,21 @@
         <button class="modal__close" id="settings-close">&times;</button>
       </div>
       <div class="modal__body">
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:var(--space-4);">
             <label for="framework-path-input" class="form-label">🎭 Framework Project Path</label>
-            <div style="display: flex; gap: var(--space-2);">
-              <input type="text" id="framework-path-input" class="form-input" placeholder="e.g. C:\Users\admin\Project\Playwrite jugl trial" style="flex: 1;" />
-              <button id="framework-path-browse-btn" class="btn btn--secondary" style="white-space: nowrap; height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0 var(--space-4);">
-                Browse...
-              </button>
+            <div style="display:flex; gap:var(--space-2);">
+              <input type="text" id="framework-path-input" class="form-input" style="flex:1" placeholder="C:\Projects\my-tests" />
+              <button id="framework-path-browse-btn" class="btn btn--secondary">Browse</button>
             </div>
-            <span class="form-hint" style="margin-top: var(--space-2);">Absolute path to your <code>Playwrite jugl trial</code> project folder.</span>
+            <span class="form-hint">Absolute path to your Playwright folder.</span>
           </div>
-        </div>
+
+          <div class="form-group" style="margin-bottom:0;">
+            <label for="github-pat-input" class="form-label">🐙 GitHub Personal Access Token</label>
+            <input type="password" id="github-pat-input" class="form-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+            <span class="form-hint">Required for Pull Request management. Token needs `repo` scope.</span>
+          </div>
+      </div>
       <div class="modal__footer">
         <button id="settings-cancel" class="btn btn--ghost">Cancel</button>
         <button id="settings-save" class="btn btn--primary">Save Settings</button>
@@ -464,6 +476,55 @@
     </div>
   </div>
 
-  <script type="module" src="./main.js"></script>
+  <div class="modal-overlay hidden" id="pr-modal">
+    <div class="modal" style="width: 80vw; max-width: 900px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="modal__header" style="flex-shrink: 0;">
+        <h3 class="modal__title">🐙 Pull Requests</h3>
+        <button class="modal__close" id="pr-close">&times;</button>
+      </div>
+      <div class="modal__body" style="padding: 0; display: flex; flex-direction: column; flex: 1; overflow: hidden; background: var(--bg-surface);">
+        <!-- Tabs -->
+        <div style="display: flex; border-bottom: 1px solid var(--border-subtle); padding: 0 var(--space-4); background: var(--bg-panel);">
+          <button class="pr-tab active" data-target="pr-list-view" style="padding: var(--space-3) var(--space-4); background: none; border: none; border-bottom: 2px solid var(--accent-primary); color: var(--text-primary); font-weight: var(--font-medium); cursor: pointer;">Open PRs</button>
+          <button class="pr-tab" data-target="pr-create-view" style="padding: var(--space-3) var(--space-4); background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer;">Create PR</button>
+        </div>
+
+        <!-- PR List View -->
+        <div id="pr-list-view" style="flex: 1; overflow-y: auto; padding: var(--space-4);">
+          <div id="pr-loading" style="text-align: center; color: var(--text-muted); padding: var(--space-6);">Loading PRs...</div>
+          <div id="pr-list-container" style="display: flex; flex-direction: column; gap: var(--space-3);"></div>
+        </div>
+
+        <!-- Create PR View -->
+        <div id="pr-create-view" class="hidden" style="flex: 1; overflow-y: auto; padding: var(--space-5);">
+          <div class="form-group">
+            <label for="pr-title" class="form-label">Title</label>
+            <input type="text" id="pr-title" class="form-input" placeholder="e.g. Update scenario tests" />
+          </div>
+          <div class="form-group">
+            <label for="pr-body" class="form-label">Description</label>
+            <textarea id="pr-body" class="form-input" rows="4" placeholder="Describe your changes..."></textarea>
+          </div>
+          <div style="display: flex; gap: var(--space-4);">
+            <div class="form-group" style="flex: 1;">
+              <label for="pr-base" class="form-label">Base Branch</label>
+              <input type="text" id="pr-base" class="form-input" value="main" />
+              <span class="form-hint">Branch you want to merge into</span>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label for="pr-head" class="form-label">Compare Branch</label>
+              <input type="text" id="pr-head" class="form-input" placeholder="e.g. feature/new-tests" />
+              <span class="form-hint">Branch containing your commits</span>
+            </div>
+          </div>
+          <div style="margin-top: var(--space-4); display: flex; justify-content: flex-end;">
+            <button id="pr-create-btn" class="btn btn--primary">Create Pull Request</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js" type="module"></script>
 </body>
 </html>

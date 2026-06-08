@@ -101,7 +101,7 @@ router.post('/browse-folder', async (req, res) => {
 
 router.get('/git-push', async (req, res) => {
   try {
-    const { stdout, stderr } = await execAsync('node git-push.js', { cwd: projectRoot });
+    const { stdout, stderr } = await execAsync('node test-args.js', { cwd: projectRoot });
     res.json({ success: true, stdout, stderr });
   } catch (error: any) {
     res.status(500).json({ error: error.message, stdout: error.stdout, stderr: error.stderr });
