@@ -140,19 +140,6 @@ const dom = {
   fwTerminal: document.getElementById('fw-terminal'),
   fwRunStatus: document.getElementById('fw-run-status'),
   fwOpenReportBtn: document.getElementById('fw-open-report-btn'),
-  fwGitPushBtn: document.getElementById('fw-git-push-btn'),
-  fwPrsBtn: document.getElementById('fw-prs-btn'),
-
-  // PR Modal
-  prModal: document.getElementById('pr-modal'),
-  prCloseBtn: document.getElementById('pr-close'),
-  prTabs: document.querySelectorAll('.pr-tab'),
-  prListView: document.getElementById('pr-list-view'),
-  prCreateView: document.getElementById('pr-create-view'),
-  prListContainer: document.getElementById('pr-list-container'),
-  prLoading: document.getElementById('pr-loading'),
-  prCreateBtn: document.getElementById('pr-create-btn'),
-  githubPatInput: document.getElementById('github-pat-input'),
 };
 
 // ---- Initialize ----
@@ -449,96 +436,6 @@ function bindEvents() {
         showToast('Logs copied to clipboard!', 'success');
       } catch (err) {
         showToast('Failed to copy logs', 'error');
-      }
-    });
-  }
-
-  if (dom.fwGitPushBtn) {
-    dom.fwGitPushBtn.addEventListener('click', async () => {
-      if (!state.fw.connected) return showToast('Framework not connected', 'error');
-      const msg = await customPrompt('Enter commit message (or leave blank for default):', '', 'Push to Git');
-      if (msg === null) return; // User cancelled
-      
-      showToast('Committing and Pushing...', 'info');
-      dom.fwGitPushBtn.disabled = true;
-      try {
-        const { pushFrameworkToGit } = await import('./utils/api.js');
-        const res = await pushFrameworkToGit(state.settings.frameworkPath, msg || 'Update tests from Playwright Builder');
-        showToast('Successfully pushed to Git!', 'success');
-      } catch (err) {
-        showToast('Git push failed: ' + err.message, 'error');
-      } finally {
-        dom.fwGitPushBtn.disabled = false;
-      }
-    });
-  }
-
-  // PR Modal Logic
-  if (dom.fwPrsBtn) {
-    dom.fwPrsBtn.addEventListener('click', () => {
-      if (!state.settings.githubPat) {
-        showToast('Please set your GitHub Personal Access Token in Settings first.', 'warning');
-        return;
-      }
-      dom.prModal.classList.remove('hidden');
-      loadPullRequests();
-    });
-  }
-
-  if (dom.prCloseBtn) {
-    dom.prCloseBtn.addEventListener('click', () => {
-      dom.prModal.classList.add('hidden');
-    });
-  }
-
-  if (dom.prTabs) {
-    dom.prTabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        dom.prTabs.forEach(t => {
-          t.classList.remove('active');
-          t.style.borderBottomColor = 'transparent';
-          t.style.color = 'var(--text-muted)';
-        });
-        tab.classList.add('active');
-        tab.style.borderBottomColor = 'var(--accent-primary)';
-        tab.style.color = 'var(--text-primary)';
-
-        const target = tab.getAttribute('data-target');
-        if (target === 'pr-list-view') {
-          dom.prListView.classList.remove('hidden');
-          dom.prCreateView.classList.add('hidden');
-          loadPullRequests();
-        } else {
-          dom.prListView.classList.add('hidden');
-          dom.prCreateView.classList.remove('hidden');
-        }
-      });
-    });
-  }
-
-  if (dom.prCreateBtn) {
-    dom.prCreateBtn.addEventListener('click', async () => {
-      const title = document.getElementById('pr-title').value;
-      const body = document.getElementById('pr-body').value;
-      const base = document.getElementById('pr-base').value;
-      const head = document.getElementById('pr-head').value;
-
-      if (!title || !base || !head) return showToast('Title, Base, and Compare branches are required', 'error');
-
-      dom.prCreateBtn.disabled = true;
-      dom.prCreateBtn.textContent = 'Creating...';
-      try {
-        const { createFrameworkPR } = await import('./utils/api.js');
-        await createFrameworkPR(state.settings.frameworkPath, state.settings.githubPat, { title, body, base, head });
-        showToast('PR Created Successfully!', 'success');
-        document.getElementById('pr-title').value = '';
-        document.getElementById('pr-body').value = '';
-        dom.prTabs[0].click(); // Go back to list view
-      } catch (err) {
-        showToast('Failed to create PR: ' + err.message, 'error');
-      } finally {
-        dom.prCreateBtn.disabled = false;
-        dom.prCreateBtn.textContent = 'Create Pull Request';
       }
     });
   }
@@ -1430,7 +1327,6 @@ async function handleOpenConfirm() {
 function openSettingsModal() {
   if (dom.frameworkPathInput) {
     document.getElementById('framework-path-input').value = state.settings.frameworkPath;
-    dom.githubPatInput.value = state.settings.githubPat;
     dom.settingsModal.classList.remove('hidden');
   }
 }
@@ -1444,12 +1340,6 @@ function handleSaveSettings() {
     const fwPath = dom.frameworkPathInput.value.trim();
     state.settings.frameworkPath = fwPath;
     localStorage.setItem('fwPath', fwPath);
-  }
-  
-  if (dom.githubPatInput) {
-    const pat = dom.githubPatInput.value.trim();
-    state.settings.githubPat = pat;
-    localStorage.setItem('githubPat', pat);
   }
 
   localStorage.setItem('pw_builder_settings', JSON.stringify(state.settings));
@@ -2416,56 +2306,3 @@ setInterval(async () => {
   }
 }, 3000);
 
-// ============================================
-// PULL REQUEST LOGIC
-// ============================================
-async function loadPullRequests() {
-  dom.prLoading.classList.remove('hidden');
-  dom.prListContainer.innerHTML = '';
-  try {
-    const { getFrameworkPRs, mergeFrameworkPR } = await import('./utils/api.js');
-    const prs = await getFrameworkPRs(state.settings.frameworkPath, state.settings.githubPat);
-    
-    if (!prs || prs.length === 0) {
-      dom.prListContainer.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:var(--space-4);">No open pull requests found.</div>';
-    } else {
-      dom.prListContainer.innerHTML = prs.map(pr => `
-        <div style="border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: var(--space-3); background: var(--bg-surface);">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: var(--space-2);">
-            <div>
-              <a href="${pr.html_url}" target="_blank" style="color:var(--accent-primary); font-weight:bold; text-decoration:none;">#${pr.number} ${escapeHtml(pr.title)}</a>
-              <div style="font-size:var(--text-xs); color:var(--text-muted); margin-top:2px;">
-                by ${escapeHtml(pr.user?.login)} • ${pr.head?.ref} → ${pr.base?.ref}
-              </div>
-            </div>
-            <button class="btn btn--secondary btn--small merge-pr-btn" data-number="${pr.number}">Merge</button>
-          </div>
-          <div style="font-size:var(--text-sm); color:var(--text-primary); margin-bottom: var(--space-2); max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
-            ${escapeHtml(pr.body || 'No description provided.')}
-          </div>
-        </div>
-      `).join('');
-
-      document.querySelectorAll('.merge-pr-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          const number = e.target.getAttribute('data-number');
-          e.target.disabled = true;
-          e.target.textContent = 'Merging...';
-          try {
-            await mergeFrameworkPR(state.settings.frameworkPath, state.settings.githubPat, number);
-            showToast('PR merged successfully!', 'success');
-            loadPullRequests();
-          } catch (err) {
-            showToast('Merge failed: ' + err.message, 'error');
-            e.target.disabled = false;
-            e.target.textContent = 'Merge';
-          }
-        });
-      });
-    }
-  } catch (err) {
-    dom.prListContainer.innerHTML = `<div style="text-align:center;color:var(--color-error);padding:var(--space-4);">Failed to load PRs: ${escapeHtml(err.message)}</div>`;
-  } finally {
-    dom.prLoading.classList.add('hidden');
-  }
-}
