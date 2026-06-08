@@ -1,5 +1,5 @@
 {
-  "name": "playwright-test-builder",
+  "name": "playwrite-script-builder",
   "version": "1.0.1",
   "description": "Web-based Playwright Testing Tool — Visual test builder with element scanner and code generator",
   "main": "electron-main.js",
@@ -37,7 +37,7 @@
   },
   "build": {
     "appId": "com.playwright.builder",
-    "productName": "Playwright Builder",
+    "productName": "Playwrite Script Builder",
     "directories": {
       "output": "release"
     },
