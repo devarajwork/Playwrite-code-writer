@@ -356,10 +356,22 @@ body {
    ============================================ */
 .panels {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.2fr;
-  gap: 1px;
+  grid-template-columns: var(--panel-w1, 1fr) 5px var(--panel-w2, 1fr) 5px var(--panel-w3, 1.2fr);
   height: calc(100vh - var(--toolbar-height));
   background: var(--border-subtle);
+}
+
+.resizer {
+  cursor: col-resize;
+  background: var(--border-subtle);
+  transition: background 0.2s;
+  z-index: 10;
+  width: 100%;
+  height: 100%;
+}
+
+.resizer:hover, .resizer.active {
+  background: var(--accent-primary);
 }
 
 .panel {

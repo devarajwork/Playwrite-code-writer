@@ -153,7 +153,7 @@ export async function loadFrameworkFile(frameworkPath, folder, filename) {
 }
 
 export async function getFrameworkTree(frameworkPath) {
-  const params = new URLSearchParams({ path: frameworkPath });
+  const params = new URLSearchParams({ path: frameworkPath, t: Date.now().toString() });
   const response = await fetch(`${API_BASE}/framework/tree?${params.toString()}`);
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));

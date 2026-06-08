@@ -55,14 +55,8 @@
       </div>
     </div>
     <div class="toolbar__actions">
-      <button id="run-btn" class="btn btn--primary" title="Run test programmatically">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Run Test
-      </button>
-      <button id="save-btn" class="btn btn--success" title="Save test file">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
-        Save
-      </button>
+
+
       <button id="settings-btn" class="btn btn--ghost" title="Settings" style="display: inline-flex; align-items: center; gap: 6px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Settings
@@ -83,6 +77,10 @@
           Test Steps
         </h2>
         <span class="panel__badge" id="step-count">0</span>
+        <button id="run-btn" class="btn btn--primary btn--small" title="Run test programmatically" style="margin-left: auto;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run Test
+        </button>
       </div>
       <div style="padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--border-default); display:flex; flex-direction:column; gap:var(--space-2); background:var(--bg-base);">
         <div class="form-group" style="margin-bottom:0;">
@@ -91,6 +89,10 @@
             <div id="test-tags-container" class="tags-container"></div>
             <input type="text" id="test-tags-input" class="tag-input-field" placeholder="Add tag & press Enter" />
           </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+          <input type="checkbox" id="disable-auth-checkbox" style="cursor:pointer;" />
+          <label for="disable-auth-checkbox" style="font-size:var(--text-xs); color:var(--text-secondary); cursor:pointer;">Run unauthenticated (Ignore saved login session)</label>
         </div>
       </div>
       <div class="panel__content" id="steps-container">
@@ -107,6 +109,7 @@
         </button>
       </div>
     </section>
+    <div class="resizer" id="resizer-1"></div>
 
     <!-- CENTER PANEL: Code Editor -->
     <section class="panel panel--code" id="code-panel">
@@ -116,8 +119,18 @@
           Code Editor
         </h2>
         <div class="panel__actions">
+          <button id="save-btn" class="btn btn--success btn--small" title="Save test file" style="margin-right: 4px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/></svg>
+            Save
+          </button>
+          <button id="full-view-btn" class="btn btn--icon" title="Full View Code">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+          </button>
           <button id="copy-code-btn" class="btn btn--icon" title="Copy code">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <button id="reload-code-btn" class="btn btn--icon hidden" title="Reload from disk">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
           <button id="download-btn" class="btn btn--icon" title="Download .spec.ts">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -132,6 +145,7 @@
         <pre id="code-block" class="code-block hidden" style="margin:0;padding:var(--space-4);min-height:100%;font-size:var(--text-sm);line-height:1.5;"><code id="code-output" class="code-block__code language-typescript" contenteditable="true" spellcheck="false" style="outline: none; display: block; min-height: 100%;"></code></pre>
       </div>
     </section>
+    <div class="resizer" id="resizer-2"></div>
 
     <!-- RIGHT PANEL: Framework Manager -->
     <section class="panel panel--framework" id="framework-panel">
@@ -179,6 +193,7 @@
       </div>
     </section>
   </main>
+
 
   <!-- Add Step Modal -->
   <div class="modal-overlay hidden" id="add-step-modal">
@@ -234,6 +249,16 @@
           <input type="text" id="step-value" class="form-input" placeholder="Enter value..." />
         </div>
 
+        <div class="form-group hidden" id="wait-until-group">
+          <label for="step-wait-until" class="form-label">Wait Until (Navigate)</label>
+          <select id="step-wait-until" class="form-select">
+            <option value="">Default (load)</option>
+            <option value="domcontentloaded">domcontentloaded</option>
+            <option value="networkidle">networkidle</option>
+            <option value="commit">commit</option>
+          </select>
+        </div>
+
         <div class="form-group">
           <label for="step-description" class="form-label">Description <span class="form-optional">(optional)</span></label>
           <input type="text" id="step-description" class="form-input" placeholder="e.g. Click the login button" />
@@ -245,6 +270,19 @@
       </div>
     </div>
   </div>
+  
+  <div class="modal-overlay hidden" id="full-code-modal">
+    <div class="modal" style="width: 90vw; height: 90vh; max-width: none; display: flex; flex-direction: column;">
+      <div class="modal__header">
+        <h3 class="modal__title">Code Editor (Full View)</h3>
+        <button class="modal__close" id="full-code-close">&times;</button>
+      </div>
+      <div class="modal__body" style="flex: 1; overflow: auto; padding: 0; background: var(--bg-editor);">
+        <pre class="code-block" style="margin:0;padding:var(--space-4);min-height:100%;font-size:var(--text-sm);line-height:1.5;"><code id="full-code-output" class="code-block__code language-typescript" contenteditable="true" spellcheck="false" style="outline: none; display: block; min-height: 100%;"></code></pre>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay hidden" id="fw-run-modal">
     <div class="modal" style="max-width: 650px; max-height: 85vh; display: flex; flex-direction: column;">
       <div class="modal__header" style="flex-shrink: 0;">
@@ -286,7 +324,10 @@
         
         <div style="display:flex;gap:var(--space-2);margin-top:var(--space-3);align-items:center;">
           <span id="fw-run-status" style="font-size:var(--text-xs);color:var(--text-muted);">Idle</span>
-          <button id="fw-open-report-btn" class="btn btn--ghost hidden" style="font-size:var(--text-xs);height:28px;padding:0 var(--space-3);margin-left:auto;">📊 View HTML Report</button>
+          <div style="margin-left:auto; display:flex; gap:var(--space-2);">
+            <button id="fw-stop-btn" class="btn btn--danger hidden" style="font-size:var(--text-xs);height:28px;padding:0 var(--space-3);">Stop Run</button>
+            <button id="fw-open-report-btn" class="btn btn--ghost hidden" style="font-size:var(--text-xs);height:28px;padding:0 var(--space-3);">📊 View HTML Report</button>
+          </div>
         </div>
       </div>
     </div>
@@ -405,16 +446,6 @@
         <button class="modal__close" id="settings-close">&times;</button>
       </div>
       <div class="modal__body">
-          <div class="form-group">
-            <label for="save-location-input" class="form-label">Test Save Location</label>
-            <div style="display: flex; gap: var(--space-2);">
-              <input type="text" id="save-location-input" class="form-input" placeholder="e.g. generated-tests" value="generated-tests" style="flex: 1;" />
-              <button id="save-location-browse-btn" class="btn btn--secondary" style="white-space: nowrap; height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0 var(--space-4);">
-                Browse...
-              </button>
-            </div>
-            <span class="form-hint" style="margin-top: var(--space-2);">Relative to project root (e.g. <code>generated-tests</code>, <code>tests</code>) or absolute path.</span>
-          </div>
           <div class="form-group" style="margin-bottom:0;">
             <label for="framework-path-input" class="form-label">🎭 Framework Project Path</label>
             <div style="display: flex; gap: var(--space-2);">

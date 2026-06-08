@@ -11,6 +11,8 @@ import {
   getBestSelector,
   STEP_TYPE_INFO,
   parsePlaywrightScript,
+  customConfirm,
+  customPrompt,
 } from './utils/helpers.js';
 
 // ---- Application State ----
@@ -19,11 +21,14 @@ const state = {
   steps: [],
   scannedElements: [],
   filteredElements: [],
-  generatedCode: '',
   currentFilter: 'all',
   searchQuery: '',
-  dragSourceIndex: null,
-  editingStepId: null,
+  generatedCode: '',
+  disableAuth: false,
+  isDirty: false,
+  isRawCode: false,
+  codeManuallyEdited: false,
+  insertIndex: null,
   settings: JSON.parse(localStorage.getItem('pw_builder_settings')) || {
     saveLocation: 'generated-tests',
     frameworkPath: '',
@@ -40,6 +45,7 @@ const dom = {
   testNameInput: document.getElementById('test-name-input'),
   testTagsInput: document.getElementById('test-tags-input'),
   testTagsContainer: document.getElementById('test-tags-container'),
+  disableAuthCheckbox: document.getElementById('disable-auth-checkbox'),
   urlInput: document.getElementById('url-input'),
   scanBtn: document.getElementById('scan-btn'),
   saveBtn: document.getElementById('save-btn'),
@@ -55,7 +61,15 @@ const dom = {
   codeOutput: document.getElementById('code-output'),
   emptyCode: document.getElementById('empty-code'),
   copyCodeBtn: document.getElementById('copy-code-btn'),
+  reloadCodeBtn: document.getElementById('reload-code-btn'),
   downloadBtn: document.getElementById('download-btn'),
+  fullViewBtn: document.getElementById('full-view-btn'),
+  fullCodeModal: document.getElementById('full-code-modal'),
+  fullCodeClose: document.getElementById('full-code-close'),
+  fullCodeOutput: document.getElementById('full-code-output'),
+  panels: document.getElementById('panels'),
+  resizer1: document.getElementById('resizer-1'),
+  resizer2: document.getElementById('resizer-2'),
   // Modal
   modal: document.getElementById('add-step-modal'),
   modalClose: document.getElementById('modal-close'),
@@ -69,6 +83,8 @@ const dom = {
   selectorChoicesWrapper: document.getElementById('selector-choices-wrapper'),
   selectorChoicesDropdown: document.getElementById('selector-choices-dropdown'),
   valueGroup: document.getElementById('value-group'),
+  waitUntilGroup: document.getElementById('wait-until-group'),
+  stepWaitUntil: document.getElementById('step-wait-until'),
   openModal: document.getElementById('open-modal'),
   openClose: document.getElementById('open-close'),
   openCancel: document.getElementById('open-cancel'),
@@ -91,15 +107,12 @@ const dom = {
   mockProgressBar: document.getElementById('mock-progress-bar'),
   runnerScreenshotFrame: document.getElementById('runner-screenshot-frame'),
   runnerScreenshotImg: document.getElementById('runner-screenshot-img'),
-  // Interactive Inspector
   // Settings Modal
   settingsBtn: document.getElementById('settings-btn'),
   settingsModal: document.getElementById('settings-modal'),
   settingsClose: document.getElementById('settings-close'),
   settingsCancel: document.getElementById('settings-cancel'),
   settingsSave: document.getElementById('settings-save'),
-  saveLocationInput: document.getElementById('save-location-input'),
-  saveLocationBrowseBtn: document.getElementById('save-location-browse-btn'),
   frameworkPathInput: document.getElementById('framework-path-input'),
   frameworkPathBrowseBtn: document.getElementById('framework-path-browse-btn'),
   // Framework Run Modal
@@ -121,6 +134,8 @@ const dom = {
   fwRunAllBtn: document.getElementById('fw-run-all-btn'),
   fwRunSetupBtn: document.getElementById('fw-run-setup-btn'),
   fwRunModuleBtn: document.getElementById('fw-run-module-btn'),
+  fwRunTagBtn: document.getElementById('fw-run-tag-btn'),
+  fwStopBtn: document.getElementById('fw-stop-btn'),
   fwTerminal: document.getElementById('fw-terminal'),
   fwRunStatus: document.getElementById('fw-run-status'),
   fwOpenReportBtn: document.getElementById('fw-open-report-btn'),
@@ -138,14 +153,8 @@ function init() {
 
 function bindEvents() {
   // Toolbar
-  dom.scanBtn.addEventListener('click', () => {
-    const url = dom.urlInput.value.trim();
-    if (url) {
-      window.open(`/api/proxy?url=${encodeURIComponent(url)}`, '_blank');
-    } else {
-      showToast('Please enter and scan a URL first', 'error');
-    }
-  });
+  dom.scanBtn.addEventListener('click', handleScan);
+
   dom.saveBtn.addEventListener('click', handleSave);
 
   // Tags Pill Input
@@ -179,13 +188,28 @@ function bindEvents() {
   }
 
   // Step Builder
-  dom.addStepBtn.addEventListener('click', () => openModal());
+  dom.addStepBtn.addEventListener('click', () => {
+    state.insertIndex = null;
+    openModal();
+  });
 
 
 
   // Code Panel
   dom.copyCodeBtn.addEventListener('click', handleCopyCode);
   dom.downloadBtn.addEventListener('click', handleDownload);
+  dom.testNameInput.addEventListener('input', () => {
+    state.isDirty = true;
+    autoGenerate();
+  });
+  
+  if (dom.disableAuthCheckbox) {
+    dom.disableAuthCheckbox.addEventListener('change', () => {
+      state.disableAuth = dom.disableAuthCheckbox.checked;
+      state.isDirty = true;
+      autoGenerate();
+    });
+  }
 
   // Modal
   dom.modalClose.addEventListener('click', closeModal);
@@ -234,36 +258,170 @@ function bindEvents() {
   dom.settingsClose.addEventListener('click', closeSettingsModal);
   dom.settingsCancel.addEventListener('click', closeSettingsModal);
   dom.settingsSave.addEventListener('click', handleSaveSettings);
-  dom.saveLocationBrowseBtn.addEventListener('click', handleBrowseSaveLocation);
   dom.frameworkPathBrowseBtn.addEventListener('click', handleBrowseFrameworkPath);
   dom.settingsModal.addEventListener('click', (e) => {
     if (e.target === dom.settingsModal) closeSettingsModal();
   });
 
-
-
-  // Framework panel
-  const fwRunTagSelect = document.getElementById('fw-run-tag-select');
-  const fwRunTagBtn = document.getElementById('fw-run-tag-btn');
-  
-  dom.fwRunAllBtn.addEventListener('click', () => handleFrameworkRun('all'));
-  dom.fwRunSetupBtn.addEventListener('click', () => handleFrameworkRun('setup'));
-  
-  if (fwRunTagBtn && fwRunTagSelect) {
-    fwRunTagBtn.addEventListener('click', () => {
-      const tag = fwRunTagSelect.value.trim();
-      if (!tag) { showToast('Select a tag first', 'error'); return; }
-      handleFrameworkRun('tag', tag);
+  // Full View Modal
+  if (dom.fullViewBtn) {
+    dom.fullViewBtn.addEventListener('click', () => {
+      const code = state.isRawCode ? dom.codeOutput.textContent : state.generatedCode;
+      dom.fullCodeOutput.innerHTML = highlightCode(code);
+      dom.fullCodeModal.classList.remove('hidden');
+    });
+  }
+  if (dom.fullCodeClose) {
+    dom.fullCodeClose.addEventListener('click', () => {
+      dom.fullCodeModal.classList.add('hidden');
+    });
+  }
+  if (dom.fullCodeModal) {
+    dom.fullCodeModal.addEventListener('click', (e) => {
+      if (e.target === dom.fullCodeModal) dom.fullCodeModal.classList.add('hidden');
+    });
+  }
+  if (dom.fullCodeOutput) {
+    dom.fullCodeOutput.addEventListener('input', () => {
+      state.isDirty = true;
+      state.codeManuallyEdited = true;
+      const newCode = dom.fullCodeOutput.innerText;
+      if (state.isRawCode) {
+        dom.codeOutput.innerHTML = highlightCode(newCode);
+      } else {
+        state.generatedCode = newCode;
+        dom.codeOutput.innerHTML = highlightCode(newCode);
+      }
+    });
+  }
+  if (dom.codeOutput) {
+    dom.codeOutput.addEventListener('input', () => {
+      state.isDirty = true;
+      state.codeManuallyEdited = true;
+      const newCode = dom.codeOutput.innerText;
+      if (state.isRawCode) {
+        if (dom.fullCodeOutput) dom.fullCodeOutput.innerHTML = highlightCode(newCode);
+      } else {
+        state.generatedCode = newCode;
+        if (dom.fullCodeOutput) dom.fullCodeOutput.innerHTML = highlightCode(newCode);
+      }
     });
   }
 
+  if (dom.reloadCodeBtn) {
+    dom.reloadCodeBtn.addEventListener('click', async () => {
+      // 1. Determine what to reload. If a file is active, reload it. Otherwise fallback to the Run dropdown.
+      let targetFilename = state.fw.activeFilename;
+      let targetLocation = state.settings.saveLocation;
+      let isFromDropdown = false;
+      let targetFolder = '';
+
+      if (!targetFilename) {
+        if (state.fw.selectedFilePath && state.fw.selectedFilePath.endsWith('.ts')) {
+          // Parse the path, e.g., "tests/modules/jugl-fun-test.spec.ts"
+          const pathParts = state.fw.selectedFilePath.split('/');
+          targetFilename = pathParts.pop();
+          if (pathParts[0] === 'tests') pathParts.shift();
+          targetFolder = pathParts.join('/');
+          isFromDropdown = true;
+        } else {
+          return showToast('No file is currently open to reload (select a file in the tree first)', 'warning');
+        }
+      }
+
+      if (state.isDirty) {
+        const confirmRefresh = await customConfirm('You have unsaved changes in the editor. Reloading will discard them. Continue?', 'Discard Changes?');
+        if (!confirmRefresh) return;
+      }
+
+      const wasDirty = state.isDirty;
+      state.isDirty = false;
+      
+      try {
+        if (isFromDropdown) {
+          // If we are bootstrapping from the dropdown, just use the existing load function
+          await loadScriptIntoBuilder(targetFolder, targetFilename);
+        } else {
+          // Standard reload of the actively opened file from disk
+          const { loadSavedTest } = await import('./utils/api.js');
+          const data = await loadSavedTest(targetFilename, targetLocation);
+          const parsed = parsePlaywrightScript(data.content);
+          
+          state.steps = parsed.steps;
+          dom.testNameInput.value = parsed.testName || targetFilename.replace(/\.(spec|setup)\.ts$/, '');
+          state.activeTags = parsed.tags ? parsed.tags.split(' ').filter(t => t) : [];
+          renderTags();
+          if (dom.testTagsInput) dom.testTagsInput.value = '';
+          const navStep = state.steps.find(s => s.type === 'navigate');
+          if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
+          state.disableAuth = data.content.includes('storageState: { cookies: [], origins: [] }');
+          if (dom.disableAuthCheckbox) dom.disableAuthCheckbox.checked = state.disableAuth;
+          
+          if (parsed.steps.length === 0 && data.content.trim().length > 0) {
+            state.isRawCode = true;
+            dom.stepsContainer.style.display = 'none';
+            if (dom.addStepBtn) dom.addStepBtn.closest('.panel__footer').style.display = 'none';
+            dom.stepCount.textContent = 'Raw';
+          } else {
+            state.isRawCode = false;
+            dom.stepsContainer.style.display = 'block';
+            if (dom.addStepBtn) dom.addStepBtn.closest('.panel__footer').style.display = 'block';
+          }
+          
+          state.generatedCode = data.content;
+          if (dom.codeOutput) dom.codeOutput.innerHTML = highlightCode(data.content);
+          if (dom.fullCodeOutput) dom.fullCodeOutput.innerHTML = highlightCode(data.content);
+          dom.emptyCode.classList.add('hidden');
+          dom.codeBlock.classList.remove('hidden');
+          renderSteps();
+          if (wasDirty) showToast('Reloaded changes from disk (discarded local edits)', 'info');
+          else showToast('Refreshed from disk', 'success');
+        }
+      } catch (err) {
+        showToast('Failed to reload: ' + err.message, 'error');
+      }
+    });
+  }
+
+  // Initialize Resizers
+  initResizer();
+
+  checkFrameworkConnection();
+
+  // Framework panel
+  dom.fwRunAllBtn.addEventListener('click', () => runFrameworkTest('all'));
+  dom.fwRunSetupBtn.addEventListener('click', () => runFrameworkTest('setup'));
+  
   dom.fwRunModuleBtn.addEventListener('click', () => {
-    const selectedOption = dom.fwModuleSelect.options[dom.fwModuleSelect.selectedIndex];
-    const mod = dom.fwModuleSelect.value;
-    const modPath = selectedOption ? selectedOption.dataset.filepath : '';
-    if (!mod) { showToast('Select a module first', 'error'); return; }
-    handleFrameworkRun('module', mod, modPath);
+    if (!state.fw.selectedFile) return showToast('Select a file to run', 'error');
+    runFrameworkTest('module', state.fw.selectedFile, state.fw.selectedFilePath);
   });
+  dom.fwRunTagBtn.addEventListener('click', () => {
+    const tagSelect = document.getElementById('fw-run-tag-select');
+    const tag = tagSelect ? tagSelect.value : null;
+    if (tag) {
+      runFrameworkTest('tag', tag);
+    } else {
+      showToast('No tag selected', 'error');
+    }
+  });
+
+  if (dom.fwStopBtn) {
+    dom.fwStopBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/framework/stop', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Test stopped', 'success');
+        } else {
+          showToast('Could not stop test: ' + data.message, 'error');
+        }
+      } catch (err) {
+        showToast('Error stopping test', 'error');
+      }
+    });
+  }
+
   dom.fwOpenReportBtn.addEventListener('click', () => {
     window.open('/api/framework/report/index.html', '_blank');
   });
@@ -283,15 +441,55 @@ function bindEvents() {
 
 
 
-  // Listen to message events from proxy inspector iframe
+  // Listen to message events from proxy inspector iframe or inspector tab
   window.addEventListener('message', (e) => {
     if (e.data) {
-      if (e.data.type === 'ELEMENT_CLICKED') {
-        const { bestSelector, tagName, selectors } = e.data.element;
-        openModalWithSelector(bestSelector, tagName, selectors);
-      } else if (e.data.type === 'INPUT_CHANGED') {
-        const { bestSelector, tagName, value, selectors } = e.data.element;
-        openModalWithSelectorAndValue(bestSelector, tagName, value, selectors);
+      if (e.data.type === 'ADD_STEP_MANUAL') {
+        const manualStep = e.data.step;
+        const info = STEP_TYPE_INFO[manualStep.type] || { emoji: '❓', label: manualStep.type };
+        
+        const step = {
+          id: generateId(),
+          type: manualStep.type,
+          selector: manualStep.selector,
+          value: manualStep.value || '',
+          description: manualStep.description || `Action on ${manualStep.selector}`,
+          order: state.steps.length,
+        };
+        
+        state.steps.push(step);
+        showToast(`${info.emoji} ${info.label} step added manually`, 'success');
+        renderSteps();
+        autoGenerate();
+      } else if (e.data.type === 'ELEMENT_CLICKED' || e.data.type === 'INPUT_CHANGED') {
+        // Only trigger auto-add if the message comes from the embedded iframe or older behavior, 
+        // but now the inspector tab handles these and sends ADD_STEP_MANUAL instead.
+        // We'll keep this just in case they are still generated directly.
+        const { bestSelector, tagName, value } = e.data.element;
+        const typeMap = {
+          button: 'click', input: 'fill', select: 'select',
+          textarea: 'fill', a: 'click', h1: 'assertText',
+          h2: 'assertText', h3: 'assertText', h4: 'assertText',
+          h5: 'assertText', h6: 'assertText',
+        };
+        let type = typeMap[tagName] || 'click';
+        if (value && type === 'click') type = 'fill';
+        
+        const info = STEP_TYPE_INFO[type] || { emoji: '❓', label: type };
+        
+        const step = {
+          id: generateId(),
+          type,
+          selector: bestSelector,
+          value: value || '',
+          description: value ? `Fill "${value}" into ${tagName}` : `Click on ${tagName}`,
+          order: state.steps.length,
+        };
+        
+        state.steps.push(step);
+        showToast(`${info.emoji} ${info.label} step added automatically`, 'success');
+        renderSteps();
+        autoGenerate();
       } else if (e.data.type === 'URL_CHANGED') {
         dom.urlInput.value = e.data.url;
         showToast(`Navigated to: ${e.data.url}`, 'info');
@@ -329,50 +527,21 @@ async function handleScan() {
     return;
   }
 
-  try {
-    dom.scannerLoading.classList.remove('hidden');
-    dom.scanBtn.disabled = true;
-    dom.scanBtn.textContent = 'Scanning...';
+  // Open the visual inspector in a new window/tab
+  window.open(`/inspector.html?url=${encodeURIComponent(url)}`, '_blank', 'width=1200,height=800');
 
-    const result = await scanUrl(url);
-
-    state.scannedElements = result.elements;
-    state.filteredElements = result.elements;
-    state.currentFilter = 'all';
-    state.searchQuery = '';
-    dom.elementSearch.value = '';
-
-    // Reset active filter tag
-    dom.filterTags.querySelectorAll('.tag').forEach((t) => t.classList.remove('tag--active'));
-    dom.filterTags.querySelector('[data-filter="all"]').classList.add('tag--active');
-
-    // No embedded iframe loading
-
-    // Auto-add navigation step if there are no steps yet
-    if (state.steps.length === 0) {
-      state.steps.push({
-        id: generateId(),
-        type: 'navigate',
-        selector: '',
-        value: url,
-        description: `Navigate to ${url}`,
-        order: 0,
-      });
-      renderSteps();
-      autoGenerate();
-    }
-
-    renderElements();
-    showToast(`Found ${result.elementCount} elements! Click "Open Visual Inspector" to click-to-add steps.`, 'success');
-  } catch (err) {
-    showToast(err.message || 'Failed to scan URL', 'error');
-  } finally {
-    dom.scannerLoading.classList.add('hidden');
-    dom.scanBtn.disabled = false;
-    dom.scanBtn.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      Scan Elements
-    `;
+  // Auto-add navigation step if there are no steps yet
+  if (state.steps.length === 0) {
+    state.steps.push({
+      id: generateId(),
+      type: 'navigate',
+      selector: '',
+      value: url,
+      description: `Navigate to ${url}`,
+      order: 0,
+    });
+    renderSteps();
+    autoGenerate();
   }
 }
 
@@ -535,8 +704,67 @@ function applyFilters() {
   renderElements();
 }
 
+function initResizer() {
+  const { resizer1, resizer2, panels } = dom;
+  if(!resizer1 || !resizer2 || !panels) return;
+
+  let isResizing = null;
+  let startX, startW1, startW2, startW3;
+
+  const startResize = (e, index) => {
+    isResizing = index;
+    startX = e.clientX;
+    const style = window.getComputedStyle(panels);
+    const cols = style.gridTemplateColumns.split(' ');
+    // cols format e.g. "300px 5px 300px 5px 360px"
+    startW1 = parseFloat(cols[0]) || 300;
+    startW2 = parseFloat(cols[2]) || 300;
+    startW3 = parseFloat(cols[4]) || 360;
+    
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    if(index === 1) resizer1.classList.add('active');
+    if(index === 2) resizer2.classList.add('active');
+  };
+
+  resizer1.addEventListener('mousedown', (e) => startResize(e, 1));
+  resizer2.addEventListener('mousedown', (e) => {
+    if (e.target === resizer2) startResize(e, 2);
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const dx = e.clientX - startX;
+    
+    if (isResizing === 1) {
+      let newW1 = startW1 + dx;
+      let newW2 = startW2 - dx;
+      if (newW1 < 150) { newW2 -= (150 - newW1); newW1 = 150; }
+      if (newW2 < 150) { newW1 -= (150 - newW2); newW2 = 150; }
+      panels.style.setProperty('--panel-w1', `${newW1}px`);
+      panels.style.setProperty('--panel-w2', `${newW2}px`);
+    } else if (isResizing === 2) {
+      let newW2 = startW2 + dx;
+      let newW3 = startW3 - dx;
+      if (newW2 < 150) { newW3 -= (150 - newW2); newW2 = 150; }
+      if (newW3 < 150) { newW2 -= (150 - newW3); newW3 = 150; }
+      panels.style.setProperty('--panel-w2', `${newW2}px`);
+      panels.style.setProperty('--panel-w3', `${newW3}px`);
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!isResizing) return;
+    isResizing = null;
+    document.body.style.cursor = 'default';
+    document.body.style.userSelect = '';
+    resizer1.classList.remove('active');
+    resizer2.classList.remove('active');
+  });
+}
+
 // ============================================
-// STEP BUILDER
+// STEP PANEL LOGICLDER
 // ============================================
 function openModal(editStep = null) {
   state.editingStepId = editStep ? editStep.id : null;
@@ -548,12 +776,14 @@ function openModal(editStep = null) {
     dom.stepType.value = editStep.type;
     dom.stepSelector.value = editStep.selector;
     dom.stepValue.value = editStep.value;
+    if (dom.stepWaitUntil) dom.stepWaitUntil.value = editStep.waitUntil || '';
     dom.stepDescription.value = editStep.description;
     dom.modalAdd.textContent = 'Update Step';
   } else {
     dom.stepType.value = 'click';
     dom.stepSelector.value = '';
     dom.stepValue.value = '';
+    if (dom.stepWaitUntil) dom.stepWaitUntil.value = '';
     dom.stepDescription.value = '';
     dom.modalAdd.textContent = 'Add Step';
   }
@@ -565,6 +795,7 @@ function openModal(editStep = null) {
 function openModalWithSelector(selector, tagName, selectors = null) {
   dom.modal.classList.remove('hidden');
   state.editingStepId = null;
+  state.insertIndex = null;
 
   // Auto-select step type based on element tag
   const typeMap = {
@@ -584,6 +815,7 @@ function openModalWithSelector(selector, tagName, selectors = null) {
   dom.stepType.value = typeMap[tagName] || 'click';
   dom.stepSelector.value = selector;
   dom.stepValue.value = '';
+  if (dom.stepWaitUntil) dom.stepWaitUntil.value = '';
   dom.stepDescription.value = '';
   dom.modalAdd.textContent = 'Add Step';
 
@@ -608,6 +840,11 @@ function updateStepTypeFields() {
   // Show/hide value field
   dom.valueGroup.classList.toggle('hidden', !info.needsValue);
 
+  // Show/hide wait-until field
+  if (dom.waitUntilGroup) {
+    dom.waitUntilGroup.classList.toggle('hidden', type !== 'navigate');
+  }
+
   // Update placeholder
   if (info.valuePlaceholder) {
     dom.stepValue.placeholder = info.valuePlaceholder;
@@ -618,6 +855,7 @@ function handleAddStep() {
   const type = dom.stepType.value;
   const selector = dom.stepSelector.value.trim();
   const value = dom.stepValue.value.trim();
+  const waitUntil = dom.stepWaitUntil ? dom.stepWaitUntil.value : '';
   const description = dom.stepDescription.value.trim();
   const info = STEP_TYPE_INFO[type];
 
@@ -641,6 +879,7 @@ function handleAddStep() {
       step.type = type;
       step.selector = selector;
       step.value = value;
+      step.waitUntil = waitUntil;
       step.description = description;
     }
     showToast('Step updated', 'success');
@@ -651,10 +890,21 @@ function handleAddStep() {
       type,
       selector,
       value,
+      waitUntil,
       description,
       order: state.steps.length,
     };
-    state.steps.push(step);
+    
+    if (state.insertIndex !== null) {
+      state.steps.splice(state.insertIndex, 0, step);
+      state.insertIndex = null;
+    } else {
+      state.steps.push(step);
+    }
+    
+    // Update order
+    state.steps.forEach((s, i) => s.order = i);
+    
     showToast(`${info.emoji} ${info.label} step added`, 'success');
   }
 
@@ -700,9 +950,10 @@ function renderSteps() {
           <span class="step-card__handle-dot"></span>
           <span class="step-card__handle-dot"></span>
         </div>
-        <span class="step-card__number">${index + 1}</span>
+        <input type="number" class="step-card__order-input" data-id="${step.id}" value="${index + 1}" min="1" max="${state.steps.length}" style="width: 46px; text-align: center; border: 1px solid var(--border-default); background: var(--bg-surface); color: var(--text-primary); border-radius: 4px; padding: 2px; font-size: var(--text-sm);" title="Edit order number" />
         <span class="step-card__type step-card__type--${step.type}">${info.emoji} ${info.label}</span>
         <div class="step-card__actions">
+          <button class="btn btn--danger-small btn--insert-step" data-index="${index}" title="Insert step below" style="background:var(--accent-primary);">➕</button>
           <button class="btn btn--danger-small btn--edit-step" data-id="${step.id}" title="Edit step">✏️</button>
           <button class="btn btn--danger-small btn--delete-step" data-id="${step.id}" title="Delete step">🗑️</button>
         </div>
@@ -796,6 +1047,37 @@ function renderSteps() {
       deleteStep(btn.dataset.id);
     });
   });
+  
+  dom.stepsContainer.querySelectorAll('.btn--insert-step').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index, 10);
+      state.insertIndex = idx + 1;
+      openModal();
+    });
+  });
+
+  dom.stepsContainer.querySelectorAll('.step-card__order-input').forEach((input) => {
+    input.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const stepId = input.dataset.id;
+      let newOrder = parseInt(input.value, 10);
+      if (isNaN(newOrder) || newOrder < 1) newOrder = 1;
+      if (newOrder > state.steps.length) newOrder = state.steps.length;
+      
+      const oldIndex = state.steps.findIndex(s => s.id === stepId);
+      if (oldIndex !== -1 && oldIndex !== newOrder - 1) {
+        const [moved] = state.steps.splice(oldIndex, 1);
+        state.steps.splice(newOrder - 1, 0, moved);
+        state.steps.forEach((s, i) => s.order = i);
+        renderSteps();
+        autoGenerate();
+        showToast('Step order updated', 'info');
+      } else {
+        input.value = oldIndex + 1;
+      }
+    });
+  });
 }
 
 // ============================================
@@ -838,7 +1120,9 @@ function autoGenerate() {
   
   const code = clientSideGenerate(fullName, state.steps);
   state.generatedCode = code;
+  state.codeManuallyEdited = false;
   renderCode(code);
+  state.isDirty = true;
 }
 
 function renderTags() {
@@ -868,6 +1152,13 @@ function clientSideGenerate(testName, steps) {
   const lines = [];
   lines.push(`import { test, expect } from '@playwright/test';`);
   lines.push('');
+
+  if (state.disableAuth) {
+    lines.push(`// Override global storage state to run completely unauthenticated for this file`);
+    lines.push(`test.use({ storageState: { cookies: [], origins: [] } });`);
+    lines.push('');
+  }
+
   lines.push(`test('${testName}', async ({ page }) => {`);
 
   const sortedSteps = [...steps].sort((a, b) => a.order - b.order);
@@ -895,7 +1186,7 @@ function generateStepLine(step) {
 
   switch (type) {
     case 'navigate':
-      return `await page.goto(${val ? safeVal : safeSel});`;
+      return `await page.goto(${val ? safeVal : safeSel}${step.waitUntil ? `, { waitUntil: '${step.waitUntil}' }` : ''});`;
     case 'click':
       return `await ${selectorExpr}.click();`;
     case 'dblclick':
@@ -951,16 +1242,22 @@ async function handleSave() {
   }
 
   let codeToSave = state.generatedCode;
-  if (state.isRawCode) {
-    codeToSave = dom.codeOutput.textContent;
+  if (state.isRawCode || state.codeManuallyEdited) {
+    codeToSave = dom.codeOutput.innerText.replace(/\u00A0/g, ' ');
   }
 
-  const testName = dom.testNameInput.value.trim() || 'untitled-test';
-  const filename = testName.replace(/\s+/g, '-').toLowerCase();
+  let filename;
+  if (state.fw.activeFilename) {
+    filename = state.fw.activeFilename;
+  } else {
+    const testName = dom.testNameInput.value.trim() || 'untitled-test';
+    filename = testName.replace(/\s+/g, '-').toLowerCase() + '.spec.ts';
+  }
 
   try {
     const result = await saveTest(filename, codeToSave, state.settings.saveLocation);
     showToast(`Saved as ${result.filename}`, 'success');
+    state.isDirty = false;
     // Refresh tags if connected
     if (state.fw.connected) {
       loadFrameworkTags();
@@ -1005,9 +1302,13 @@ async function handleOpenConfirm() {
       dom.testTagsInput.value = '';
     }
     
-    // Find if there's a navigate step to update URL input
     const navStep = state.steps.find(s => s.type === 'navigate');
     if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
+    
+    state.disableAuth = data.content.includes('storageState: { cookies: [], origins: [] }');
+    if (dom.disableAuthCheckbox) {
+      dom.disableAuthCheckbox.checked = state.disableAuth;
+    }
     
     renderSteps();
     autoGenerate();
@@ -1019,11 +1320,10 @@ async function handleOpenConfirm() {
 }
 
 // ============================================
-// SETTINGS HANDLERS
+// SETTINGS LOGIC
 // ============================================
 function openSettingsModal() {
-  dom.saveLocationInput.value = state.settings.saveLocation || 'generated-tests';
-  dom.frameworkPathInput.value = state.settings.frameworkPath || '';
+  if (dom.frameworkPathInput) dom.frameworkPathInput.value = state.settings.frameworkPath || '';
   dom.settingsModal.classList.remove('hidden');
 }
 
@@ -1032,39 +1332,17 @@ function closeSettingsModal() {
 }
 
 function handleSaveSettings() {
-  const saveLocation = dom.saveLocationInput.value.trim();
-  if (!saveLocation) {
-    showToast('Save location is required', 'error');
-    return;
-  }
-  state.settings.saveLocation = saveLocation;
-  state.settings.frameworkPath = dom.frameworkPathInput.value.trim();
+  if (dom.frameworkPathInput) state.settings.frameworkPath = dom.frameworkPathInput.value.trim();
+
   localStorage.setItem('pw_builder_settings', JSON.stringify(state.settings));
+  showToast('Settings saved!', 'success');
   closeSettingsModal();
-  showToast('Settings saved successfully', 'success');
-  // Re-connect to framework if path changed
+  
   if (state.settings.frameworkPath) {
     checkFrameworkConnection();
   }
 }
 
-async function handleBrowseSaveLocation() {
-  dom.saveLocationBrowseBtn.disabled = true;
-  dom.saveLocationBrowseBtn.textContent = 'Selecting...';
-
-  try {
-    const result = await browseSaveLocation();
-    if (!result.cancelled && result.path) {
-      dom.saveLocationInput.value = result.path;
-      showToast('Directory selected successfully', 'success');
-    }
-  } catch (err) {
-    showToast(err.message || 'Failed to select directory', 'error');
-  } finally {
-    dom.saveLocationBrowseBtn.disabled = false;
-    dom.saveLocationBrowseBtn.textContent = 'Browse...';
-  }
-}
 
 async function handleBrowseFrameworkPath() {
   dom.frameworkPathBrowseBtn.disabled = true;
@@ -1125,9 +1403,13 @@ function handleClear() {
   state.steps = [];
   state.activeTags = [];
   renderTags();
+  
+  state.disableAuth = false;
+  if (dom.disableAuthCheckbox) dom.disableAuthCheckbox.checked = false;
+  
   state.generatedCode = '';
   renderSteps();
-  dom.emptyCode.classList.remove('hidden');
+  dom.emptyCode.classList.add('hidden');
   dom.codeBlock.classList.add('hidden');
   showToast('All steps cleared', 'info');
 }
@@ -1483,23 +1765,6 @@ init();
 // FRAMEWORK MANAGER
 // ============================================
 
-function switchRightTab(tab) {
-  const isCode = tab === 'code';
-  dom.rightViewCode.style.display = isCode ? 'flex' : 'none';
-  dom.rightViewFramework.style.display = isCode ? 'none' : 'flex';
-
-  // Update tab styles
-  dom.tabCode.style.borderBottom = isCode ? '2px solid var(--accent-primary)' : '2px solid transparent';
-  dom.tabCode.style.color = isCode ? 'var(--text-primary)' : 'var(--text-muted)';
-  dom.tabFramework.style.borderBottom = isCode ? '2px solid transparent' : '2px solid var(--accent-primary)';
-  dom.tabFramework.style.color = isCode ? 'var(--text-muted)' : 'var(--text-primary)';
-
-  // Load scripts when switching to framework tab
-  if (!isCode && state.settings.frameworkPath) {
-    loadFrameworkScripts();
-  }
-}
-
 async function checkFrameworkConnection() {
   const path = state.settings.frameworkPath;
   if (!path) return;
@@ -1561,9 +1826,6 @@ async function loadFrameworkTags() {
   const path = state.settings.frameworkPath;
   if (!path) return;
 
-  const tagSelect = document.getElementById('fw-run-tag-select');
-  if (!tagSelect) return;
-
   try {
     const { getFrameworkTags } = await import('./utils/api.js');
     const backendTags = await getFrameworkTags(path);
@@ -1572,15 +1834,18 @@ async function loadFrameworkTags() {
     const allTags = new Set([...backendTags, ...state.activeTags]);
     const tags = Array.from(allTags).sort();
     
-    if (tags && tags.length > 0) {
-      tagSelect.innerHTML = `<option value="">Select a tag (${tags.length} found)...</option>` + 
-        tags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-    } else {
-      tagSelect.innerHTML = '<option value="">No tags found</option>';
+    state.fw.tags = tags;
+    
+    const tagSelect = document.getElementById('fw-run-tag-select');
+    if (tagSelect) {
+      if (tags.length === 0) {
+        tagSelect.innerHTML = '<option value="">No tags found</option>';
+      } else {
+        tagSelect.innerHTML = tags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+      }
     }
   } catch (err) {
     console.error('Failed to load tags:', err);
-    tagSelect.innerHTML = '<option value="">Error loading tags</option>';
   }
 }
 
@@ -1600,6 +1865,7 @@ function renderTree(node) {
             <span>${escapeHtml(node.name)}</span>
           </div>
           <div class="vscode-tree-actions">
+            <button class="vscode-tree-btn vscode-tree-run" title="Run Tests"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
             <button class="vscode-tree-btn vscode-tree-new-file" title="New File"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
             <button class="vscode-tree-btn vscode-tree-new-folder" title="New Folder"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
             ${node.path !== 'tests' ? `
@@ -1616,13 +1882,13 @@ function renderTree(node) {
   } else {
     // File
     return `
-      <div class="vscode-tree-item" data-type="file" data-path="${escapeHtml(node.path)}">
+      <div class="vscode-tree-item" data-type="file" data-path="${escapeHtml(node.path)}" style="cursor:pointer;">
         <div class="vscode-tree-item-left" style="padding-left:16px;">
           <span class="vscode-tree-icon" style="color:#d25c27;font-size:10px;font-weight:bold;">TS</span>
           <span style="color:#a8c7fa;">${escapeHtml(node.name)}</span>
         </div>
         <div class="vscode-tree-actions">
-          <button class="vscode-tree-btn vscode-tree-edit" title="Edit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="vscode-tree-btn vscode-tree-run" title="Run Tests"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
           <button class="vscode-tree-btn vscode-tree-rename" title="Rename"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
           <button class="vscode-tree-btn vscode-tree-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
         </div>
@@ -1632,19 +1898,46 @@ function renderTree(node) {
 }
 
 function updateModuleSelect(node) {
+  let folders = [];
   let files = [];
-  function gatherFiles(n) {
-    if (n.type === 'file' && (n.name.endsWith('.spec.ts') || n.name.endsWith('.setup.ts'))) {
+  
+  function gatherItems(n) {
+    if (n.type === 'folder') {
+      if (n.path !== 'tests') folders.push(n.path);
+    } else if (n.type === 'file' && (n.name.endsWith('.spec.ts') || n.name.endsWith('.setup.ts'))) {
       files.push(n.path);
     }
     if (n.children) {
-      n.children.forEach(gatherFiles);
+      n.children.forEach(gatherItems);
     }
   }
-  gatherFiles(node);
+  gatherItems(node);
   
-  if (files.length > 0) {
-    dom.fwModuleSelect.innerHTML = files.map(f => `<option value="${escapeHtml(f)}" data-filepath="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+  if (files.length > 0 || folders.length > 0) {
+    let html = '';
+    
+    if (folders.length > 0) {
+      html += '<optgroup label="Folders">';
+      html += folders.map(f => `<option value="${escapeHtml(f)}" data-filepath="${escapeHtml(f)}">📁 ${escapeHtml(f)}</option>`).join('');
+      html += '</optgroup>';
+    }
+    
+    if (files.length > 0) {
+      html += '<optgroup label="Files">';
+      html += files.map(f => `<option value="${escapeHtml(f)}" data-filepath="${escapeHtml(f)}">📄 ${escapeHtml(f)}</option>`).join('');
+      html += '</optgroup>';
+    }
+    
+    dom.fwModuleSelect.innerHTML = html;
+    
+    dom.fwModuleSelect.onchange = () => {
+      state.fw.selectedFile = dom.fwModuleSelect.value;
+      const opt = dom.fwModuleSelect.options[dom.fwModuleSelect.selectedIndex];
+      state.fw.selectedFilePath = opt ? opt.dataset.filepath : dom.fwModuleSelect.value;
+    };
+    
+    // Trigger initial select state
+    dom.fwModuleSelect.onchange();
   } else {
     dom.fwModuleSelect.innerHTML = '<option value="">No tests found</option>';
   }
@@ -1660,7 +1953,7 @@ function bindTreeEvents() {
   };
   
   dom.fwNewFolderBtn.onclick = async () => {
-    const name = prompt('New Folder Name:');
+    const name = await customPrompt('New Folder Name:', '', 'Create Folder');
     if (!name) return;
     try {
       const { createFrameworkFolder } = await import('./utils/api.js');
@@ -1670,8 +1963,9 @@ function bindTreeEvents() {
   };
 
   dom.fwNewFileBtn.onclick = async () => {
-    const name = prompt('New File Name (e.g. my-test.spec.ts):');
+    let name = await customPrompt('New File Name (without extension):', '', 'Create File');
     if (!name) return;
+    if (!name.endsWith('.spec.ts')) name += '.spec.ts';
     try {
       const { createFrameworkFile } = await import('./utils/api.js');
       await createFrameworkFile(state.settings.frameworkPath, `tests/${name}`, '// New Playwright Test\n');
@@ -1695,11 +1989,17 @@ function bindTreeEvents() {
       });
     }
 
-    // Edit file
-    const editBtn = el.querySelector('.vscode-tree-edit');
-    if (editBtn) {
-      editBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
+    // Edit file (by clicking the file row itself)
+    if (el.dataset.type === 'file') {
+      el.addEventListener('click', async (e) => {
+        if (e.target.closest('.vscode-tree-btn')) return; // Ignore if clicking action buttons
+        
+        // Show confirmation if there is an existing test in the editor
+        if (state.isDirty) {
+          const confirmSwitch = await customConfirm('A test is currently open in the editor with unsaved changes. Any unsaved changes will be lost. Do you want to open this script anyway?', 'Discard Unsaved Changes?');
+          if (!confirmSwitch) return;
+        }
+
         const path = el.dataset.path; 
         const parts = path.split('/');
         const filename = parts.pop();
@@ -1714,8 +2014,9 @@ function bindTreeEvents() {
       newFileBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const path = el.dataset.path;
-        const name = prompt(`New File Name in '${path}' (e.g. my-test.spec.ts):`);
+        let name = await customPrompt(`New File Name in '${path}' (without extension):`, '', 'Create File');
         if (!name) return;
+        if (!name.endsWith('.spec.ts')) name += '.spec.ts';
         try {
           const { createFrameworkFile } = await import('./utils/api.js');
           await createFrameworkFile(state.settings.frameworkPath, `${path}/${name}`, '// New Playwright Test\n');
@@ -1723,6 +2024,8 @@ function bindTreeEvents() {
         } catch (e) { showToast(e.message, 'error'); }
       });
     }
+
+    // Run Folder listener removed from here
     
     // New Folder inside folder
     const newFolderBtn = el.querySelector('.vscode-tree-new-folder');
@@ -1730,7 +2033,7 @@ function bindTreeEvents() {
       newFolderBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const path = el.dataset.path;
-        const name = prompt(`New Folder Name in '${path}':`);
+        const name = await customPrompt(`New Folder Name in '${path}':`, '', 'Create Folder');
         if (!name) return;
         try {
           const { createFrameworkFolder } = await import('./utils/api.js');
@@ -1747,7 +2050,7 @@ function bindTreeEvents() {
         e.stopPropagation();
         const oldPath = el.dataset.path;
         const oldName = oldPath.split('/').pop();
-        const newName = prompt(`Rename '${oldName}' to:`, oldName);
+        const newName = await customPrompt(`Rename '${oldName}' to:`, oldName, 'Rename File/Folder');
         if (!newName || newName === oldName) return;
         
         const newPath = oldPath.substring(0, oldPath.lastIndexOf('/') + 1) + newName;
@@ -1765,13 +2068,24 @@ function bindTreeEvents() {
       deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const path = el.dataset.path;
-        if (confirm(`Are you sure you want to delete '${path}'? This cannot be undone.`)) {
+        if (await customConfirm(`Are you sure you want to delete '${path}'? This cannot be undone.`, 'Delete Confirmation')) {
           try {
             const { deleteFrameworkItem } = await import('./utils/api.js');
             await deleteFrameworkItem(state.settings.frameworkPath, path);
             loadFrameworkTree();
           } catch (err) { showToast(err.message, 'error'); }
         }
+      });
+    }
+
+    // Run Tree Item
+    const runTreeBtn = el.querySelector('.vscode-tree-run');
+    if (runTreeBtn) {
+      runTreeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const path = el.dataset.path;
+        dom.fwRunModal.classList.remove('hidden');
+        runFrameworkTest('module', '', path);
       });
     }
   });
@@ -1783,81 +2097,91 @@ async function loadScriptIntoBuilder(folder, filename) {
 
   try {
     const subDir = folder ? `${path}\\tests\\${folder}` : `${path}\\tests`;
+    
+    // Update save location to match the opened file's folder so it overwrites correctly
+    state.settings.saveLocation = subDir;
+    if (dom.reloadCodeBtn) dom.reloadCodeBtn.classList.remove('hidden');
+    localStorage.setItem('pw_builder_settings', JSON.stringify(state.settings));
+
     const { loadSavedTest: load } = await import('./utils/api.js');
     const data = await load(filename, subDir);
     const parsed = parsePlaywrightScript(data.content);
 
     state.steps = parsed.steps;
-    dom.testNameInput.value = parsed.testName;
+    
+    // Set the Test Name input to the filename instead of the parsed test name
+    const baseName = filename.replace(/\.(spec|setup)\.ts$/, '');
+    dom.testNameInput.value = baseName;
 
     const navStep = state.steps.find(s => s.type === 'navigate');
     if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
 
+    state.activeTags = parsed.tags ? parsed.tags.split(' ').filter(t => t) : [];
+    renderTags();
+    if (dom.testTagsInput) dom.testTagsInput.value = '';
+
+    state.disableAuth = data.content.includes('storageState: { cookies: [], origins: [] }');
+    if (dom.disableAuthCheckbox) dom.disableAuthCheckbox.checked = state.disableAuth;
+
+    renderSteps();
+    
+    // Override isDirty since we just cleanly loaded the file
+    state.isDirty = false;
+    state.fw.activeFilename = filename;
+
     if (parsed.steps.length === 0 && data.content.trim().length > 0) {
       // It's a hand-written or legacy script that can't be parsed into steps
       state.isRawCode = true;
-      state.generatedCode = data.content;
-      dom.codeOutput.innerHTML = highlightCode(data.content);
-      dom.emptyCode.classList.add('hidden');
-      dom.codeBlock.classList.remove('hidden');
-      
-      // Update steps panel to show a message
-      dom.stepsContainer.innerHTML = '<div class="fw-empty" style="text-align:center;padding:20px;color:var(--text-muted);">This is a hand-written script.<br><br>It contains custom logic (loops, try/catch, etc.) and cannot be edited using the visual step builder.<br><br>You can view the code in the Code Preview tab.</div>';
-      dom.emptySteps.classList.add('hidden');
+      dom.stepsContainer.style.display = 'none';
+      if (dom.addStepBtn) dom.addStepBtn.closest('.panel__footer').style.display = 'none';
       dom.stepCount.textContent = 'Raw';
     } else {
       state.isRawCode = false;
-      renderSteps();
-      autoGenerate();
+      dom.stepsContainer.style.display = 'block';
+      if (dom.addStepBtn) dom.addStepBtn.closest('.panel__footer').style.display = 'block';
     }
+    
+    // Always show exactly what's on disk, do NOT autoGenerate!
+    state.generatedCode = data.content;
+    if (dom.codeOutput) dom.codeOutput.innerHTML = highlightCode(data.content);
+    if (dom.fullCodeOutput) dom.fullCodeOutput.innerHTML = highlightCode(data.content);
+    dom.emptyCode.classList.add('hidden');
+    dom.codeBlock.classList.remove('hidden');
 
-    // Switch to right panel to see code if it's raw, otherwise left panel
-    switchRightTab('code');
     showToast(`✅ Loaded "${filename}" into builder`, 'success');
   } catch (err) {
     showToast('Failed to load script: ' + err.message, 'error');
   }
 }
 
-function handleNewModuleTest() {
-  // Clear builder and configure save location to modules folder
-  state.steps = [];
-  state.generatedCode = '';
-  dom.testNameInput.value = 'New Module Test';
-  renderSteps();
-  dom.emptyCode.classList.remove('hidden');
-  dom.codeBlock.classList.add('hidden');
-
-  // Point save location to modules folder
-  if (state.settings.frameworkPath) {
-    state.settings.saveLocation = `${state.settings.frameworkPath}\\tests\\modules`;
-    localStorage.setItem('pw_builder_settings', JSON.stringify(state.settings));
+async function runFrameworkTest(scriptType, moduleName = '', modulePath = '') {
+  if (!state.settings.frameworkPath) return showToast('Set framework path first', 'error');
+  if (state.isDirty) {
+    await handleSave();
+  }
+  if (state.fw.eventSource) {
+    state.fw.eventSource.close();
   }
 
-  // Switch to code tab so they can build
-  switchRightTab('code');
-  showToast('New module test ready — add steps and click Save', 'info');
-}
-
-async function handleFrameworkRun(script, moduleName = '', modulePath = '') {
-  const path = state.settings.frameworkPath;
-  if (!path) {
-    showToast('Framework path not configured. Go to ⚙️ Settings.', 'error');
-    return;
-  }
-  if (!state.fw.connected) {
-    showToast('Framework not connected. Check Settings → Framework Path.', 'error');
-    return;
-  }
+  dom.fwTerminal.innerHTML = '';
+  dom.fwRunStatus.textContent = 'Running...';
+  dom.fwRunStatus.style.color = 'var(--text-primary)';
+  dom.fwOpenReportBtn.classList.add('hidden');
+  if (dom.fwStopBtn) dom.fwStopBtn.classList.remove('hidden');
 
   const headedToggle = document.getElementById('fw-headed-toggle');
   const headed = headedToggle ? headedToggle.checked : true;
-
-  // Reset terminal
-  dom.fwTerminal.innerHTML = '';
-  dom.fwRunStatus.textContent = 'Running...';
-  dom.fwRunStatus.style.color = 'var(--accent-primary)';
-  dom.fwOpenReportBtn.classList.add('hidden');
+  const params = new URLSearchParams({ path: state.settings.frameworkPath, script: scriptType, module: moduleName, headed: headed.toString() });
+  if (modulePath) params.append('modulePath', modulePath);
+  state.fw.eventSource = new EventSource(`/api/framework/run?${params.toString()}`);
+  
+  function appendTerminalLine(text, className) {
+    const el = document.createElement('div');
+    el.className = className;
+    el.textContent = text;
+    dom.fwTerminal.appendChild(el);
+    dom.fwTerminal.scrollTop = dom.fwTerminal.scrollHeight;
+  }
 
   // Disable buttons
   dom.fwRunAllBtn.disabled = true;
@@ -1872,57 +2196,104 @@ async function handleFrameworkRun(script, moduleName = '', modulePath = '') {
     dom.fwTerminal.scrollTop = dom.fwTerminal.scrollHeight;
   }
 
-  try {
-    console.log('Running framework with headed:', headed);
-    const response = await runFramework(path, script, moduleName, modulePath, headed);
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-        try {
-          const event = JSON.parse(trimmed.substring(6));
-          if (event.type === 'start') {
-            appendLine(`$ ${event.command}`, 'fw-line-info');
-          } else if (event.type === 'stdout') {
-            const text = event.line;
-            const cls = text.includes('passed') || text.includes('✓') ? 'fw-line-success'
-                      : text.includes('failed') || text.includes('✗') ? 'fw-line-error'
-                      : 'fw-line-stdout';
-            appendLine(text, cls);
-          } else if (event.type === 'stderr') {
-            appendLine(event.line, 'fw-line-stderr');
-          } else if (event.type === 'complete') {
-            const success = event.success;
-            appendLine(success ? '✅ Tests passed!' : `❌ Tests failed (exit ${event.exitCode})`,
-              success ? 'fw-line-success' : 'fw-line-error');
-            dom.fwRunStatus.textContent = success ? '✅ Passed' : '❌ Failed';
-            dom.fwRunStatus.style.color = success ? 'var(--color-success)' : 'var(--color-danger)';
-            dom.fwOpenReportBtn.classList.remove('hidden');
-          } else if (event.type === 'error') {
-            appendLine('Error: ' + event.message, 'fw-line-error');
-          }
-        } catch {}
+  state.fw.eventSource.onmessage = (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      if (event.type === 'start') {
+        appendLine(`$ ${event.command}`, 'fw-line-info');
+      } else if (event.type === 'stdout') {
+        const text = event.line;
+        const cls = text.includes('passed') || text.includes('✓') ? 'fw-line-success'
+                  : text.includes('failed') || text.includes('✗') ? 'fw-line-error'
+                  : 'fw-line-stdout';
+        appendLine(text, cls);
+      } else if (event.type === 'stderr') {
+        appendLine(event.line, 'fw-line-stderr');
+      } else if (event.type === 'complete') {
+        const success = event.success;
+        appendLine(success ? '✅ Tests passed!' : `❌ Tests failed (exit ${event.exitCode})`,
+          success ? 'fw-line-success' : 'fw-line-error');
+        dom.fwRunStatus.textContent = success ? '✅ Passed' : '❌ Failed';
+        dom.fwRunStatus.style.color = success ? 'var(--color-success)' : 'var(--color-danger)';
+        dom.fwOpenReportBtn.classList.remove('hidden');
+        if (dom.fwStopBtn) dom.fwStopBtn.classList.add('hidden');
+        
+        dom.fwRunAllBtn.disabled = false;
+        dom.fwRunSetupBtn.disabled = false;
+        dom.fwRunModuleBtn.disabled = false;
+        if (scriptType === 'setup') checkFrameworkConnection();
+        state.fw.eventSource.close();
+      } else if (event.type === 'error') {
+        appendLine('Error: ' + event.message, 'fw-line-error');
+        dom.fwRunStatus.textContent = '❌ Error';
+        dom.fwRunStatus.style.color = 'var(--color-danger)';
+        if (dom.fwStopBtn) dom.fwStopBtn.classList.add('hidden');
       }
+    } catch (err) {
+      console.error('Failed to parse SSE', err);
     }
-  } catch (err) {
-    appendLine('Error: ' + err.message, 'fw-line-error');
-    dom.fwRunStatus.textContent = '❌ Error';
-    dom.fwRunStatus.style.color = 'var(--color-danger)';
-  } finally {
+  };
+
+  state.fw.eventSource.onerror = () => {
+    appendLine('\n[Connection closed or errored]', 'fw-line-error');
+    if (dom.fwRunStatus.textContent === 'Running...') {
+      dom.fwRunStatus.textContent = 'Disconnected';
+    }
+    state.fw.eventSource.close();
+    state.fw.eventSource = null;
+    if (dom.fwStopBtn) dom.fwStopBtn.classList.add('hidden');
+    
     dom.fwRunAllBtn.disabled = false;
     dom.fwRunSetupBtn.disabled = false;
     dom.fwRunModuleBtn.disabled = false;
-    // Refresh auth status after setup run
-    if (script === 'setup') checkFrameworkConnection();
-  }
+  };
 }
+
+// ---- Auto Refresh ----
+setInterval(async () => {
+  if (!state.fw.activeFilename || !state.settings.saveLocation || state.isDirty) return;
+  
+  try {
+    const { loadSavedTest } = await import('./utils/api.js');
+    const data = await loadSavedTest(state.fw.activeFilename, state.settings.saveLocation);
+    
+    // If code on disk changed while we had no unsaved changes, auto-update
+    if (data.content && data.content !== state.generatedCode) {
+      console.log('Auto-refreshing file from disk:', state.fw.activeFilename);
+      const parsed = parsePlaywrightScript(data.content);
+      state.steps = parsed.steps;
+      
+      const baseName = state.fw.activeFilename.replace(/\.(spec|setup)\.ts$/, '');
+      if (!state.isDirty) dom.testNameInput.value = parsed.testName || baseName;
+      
+      state.activeTags = parsed.tags ? parsed.tags.split(' ').filter(t => t) : [];
+      renderTags();
+      const navStep = state.steps.find(s => s.type === 'navigate');
+      if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
+      state.disableAuth = data.content.includes('storageState: { cookies: [], origins: [] }');
+      if (dom.disableAuthCheckbox) dom.disableAuthCheckbox.checked = state.disableAuth;
+      
+      if (parsed.steps.length === 0 && data.content.trim().length > 0) {
+        state.isRawCode = true;
+        dom.stepsContainer.style.display = 'none';
+        if (dom.addStepBtn) dom.addStepBtn.closest('.panel__footer').style.display = 'none';
+        dom.stepCount.textContent = 'Raw';
+      } else {
+        state.isRawCode = false;
+        dom.stepsContainer.style.display = 'block';
+        if (dom.addStepBtn) dom.addStepBtn.closest('.panel__footer').style.display = 'block';
+      }
+      
+      state.generatedCode = data.content;
+      if (dom.codeOutput) dom.codeOutput.innerHTML = highlightCode(data.content);
+      if (dom.fullCodeOutput) dom.fullCodeOutput.innerHTML = highlightCode(data.content);
+      dom.emptyCode.classList.add('hidden');
+      dom.codeBlock.classList.remove('hidden');
+      renderSteps();
+      
+      showToast('Auto-refreshed from external changes', 'info');
+    }
+  } catch (err) {
+    // Ignore errors for background polling
+  }
+}, 3000);

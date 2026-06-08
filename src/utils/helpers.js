@@ -147,7 +147,7 @@ export function parsePlaywrightScript(code) {
   let testName = 'Imported Test';
   let tags = '';
   
-  const nameMatch = code.match(/test\(['"`](.*?)['"`]/);
+  const nameMatch = code.match(/test\(\s*['"`](.*?)['"`]/);
   if (nameMatch) {
     let parsedName = nameMatch[1];
     const tagsMatch = parsedName.match(/(@[\w-]+)/g);
@@ -159,11 +159,20 @@ export function parsePlaywrightScript(code) {
     }
   }
 
-  // Extract steps inside the test body.
-  const bodyMatch = code.match(/test\(.*?,\s*async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{([\s\S]*?)\}\);/);
-  if (!bodyMatch) return { testName, tags, steps };
+  // Extremely robust body extraction: just find the async page block and the last closing brace
+  const bodyStartMatch = code.match(/async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{/);
+  if (!bodyStartMatch) return { testName, tags, steps };
   
-  const body = bodyMatch[1];
+  const startIdx = bodyStartMatch.index + bodyStartMatch[0].length;
+  let endIdx = code.lastIndexOf('});');
+  if (endIdx === -1 || endIdx < startIdx) {
+    endIdx = code.lastIndexOf('})');
+  }
+  if (endIdx === -1 || endIdx < startIdx) {
+    endIdx = code.length; // fallback
+  }
+  
+  const body = code.substring(startIdx, endIdx);
   const lines = body.split('\n');
   
   let currentDescription = '';
@@ -177,15 +186,17 @@ export function parsePlaywrightScript(code) {
       continue;
     }
     
-    // Default values
     let type = '';
     let selector = '';
     let value = '';
+    let waitUntil = '';
     
     if (line.includes('page.goto(')) {
       type = 'navigate';
       const m = line.match(/goto\(['"`](.*?)['"`]/);
       if (m) value = m[1];
+      const wm = line.match(/waitUntil:\s*['"`](.*?)['"`]/);
+      if (wm) waitUntil = wm[1];
     } 
     else if (line.includes('.click(')) {
       type = 'click';
@@ -280,6 +291,7 @@ export function parsePlaywrightScript(code) {
         type,
         selector,
         value,
+        waitUntil,
         description: currentDescription,
         order: steps.length
       });
@@ -299,4 +311,134 @@ function extractLocatorFromExpect(line) {
   // Use greedy .* up to the closing parenthesis of expect()
   const m = line.match(/expect\((page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))\)/);
   return m ? m[1] : '';
+}
+
+export function customConfirm(message, title = 'Confirm') {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.zIndex = '9999';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    
+    const header = document.createElement('div');
+    header.className = 'modal__header';
+    header.innerHTML = `<h3 class="modal__title">${escapeHtml(title)}</h3>`;
+    
+    const body = document.createElement('div');
+    body.className = 'modal__body';
+    body.innerHTML = `<p>${escapeHtml(message)}</p>`;
+    
+    const footer = document.createElement('div');
+    footer.className = 'modal__footer';
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn--ghost';
+    cancelBtn.textContent = 'Cancel';
+    
+    const okBtn = document.createElement('button');
+    okBtn.className = 'btn btn--primary';
+    okBtn.textContent = 'OK';
+    
+    footer.appendChild(cancelBtn);
+    footer.appendChild(okBtn);
+    
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const cleanup = () => {
+      document.body.removeChild(overlay);
+    };
+
+    cancelBtn.addEventListener('click', () => {
+      cleanup();
+      resolve(false);
+    });
+
+    okBtn.addEventListener('click', () => {
+      cleanup();
+      resolve(true);
+    });
+  });
+}
+
+export function customPrompt(message, defaultValue = '', title = 'Input Required') {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.zIndex = '9999';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    
+    const header = document.createElement('div');
+    header.className = 'modal__header';
+    header.innerHTML = `<h3 class="modal__title">${escapeHtml(title)}</h3>`;
+    
+    const body = document.createElement('div');
+    body.className = 'modal__body';
+    
+    const msgEl = document.createElement('p');
+    msgEl.style.marginBottom = 'var(--space-3)';
+    msgEl.textContent = message;
+    
+    const inputEl = document.createElement('input');
+    inputEl.type = 'text';
+    inputEl.className = 'form-input';
+    inputEl.value = defaultValue;
+    
+    body.appendChild(msgEl);
+    body.appendChild(inputEl);
+    
+    const footer = document.createElement('div');
+    footer.className = 'modal__footer';
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn--ghost';
+    cancelBtn.textContent = 'Cancel';
+    
+    const okBtn = document.createElement('button');
+    okBtn.className = 'btn btn--primary';
+    okBtn.textContent = 'OK';
+    
+    footer.appendChild(cancelBtn);
+    footer.appendChild(okBtn);
+    
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    inputEl.focus();
+
+    const cleanup = () => {
+      document.body.removeChild(overlay);
+    };
+
+    cancelBtn.addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    });
+
+    okBtn.addEventListener('click', () => {
+      cleanup();
+      resolve(inputEl.value);
+    });
+    
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        cleanup();
+        resolve(inputEl.value);
+      }
+      if (e.key === 'Escape') {
+        cleanup();
+        resolve(null);
+      }
+    });
+  });
 }

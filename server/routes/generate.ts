@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { generateTestCode } from '../services/codeGenerator.js';
 import type { GenerateRequest } from '../types.js';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join, dirname, isAbsolute } from 'path';
+import { join, dirname, isAbsolute, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -55,12 +55,18 @@ router.post('/save', async (req, res) => {
       mkdirSync(outputDir, { recursive: true });
     }
 
-    const safeName = filename.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filePath = join(outputDir, `${safeName}.spec.ts`);
+    let filePath: string;
+    if (filename.endsWith('.ts') || filename.endsWith('.js')) {
+      filePath = join(outputDir, filename);
+    } else {
+      const safeName = filename.replace(/[^a-zA-Z0-9_-]/g, '_');
+      filePath = join(outputDir, `${safeName}.spec.ts`);
+    }
+
     writeFileSync(filePath, code, 'utf-8');
 
     console.log(`💾 Saved test: ${filePath}`);
-    res.json({ path: filePath, filename: `${safeName}.spec.ts` });
+    res.json({ path: filePath, filename: basename(filePath) });
   } catch (error: any) {
     console.error('❌ Save error:', error.message);
     res.status(500).json({ error: 'Failed to save test file', details: error.message });
@@ -90,6 +96,15 @@ router.post('/browse-folder', async (req, res) => {
       error: 'Failed to open directory picker: ' + error.message, 
       details: error.stack 
     });
+  }
+});
+
+router.get('/git-push', async (req, res) => {
+  try {
+    const { stdout, stderr } = await execAsync('node git-push.js', { cwd: projectRoot });
+    res.json({ success: true, stdout, stderr });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message, stdout: error.stdout, stderr: error.stderr });
   }
 });
 

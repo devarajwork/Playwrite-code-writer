@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Visual Inspector</title>
+  <style>
+    :root {
+      --bg-surface: #1e1e2e;
+      --bg-panel: #252538;
+      --text-primary: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-primary: #8b5cf6;
+      --border-default: rgba(148, 163, 184, 0.15);
+      --font-sans: 'Inter', sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      height: 100vh;
+      font-family: var(--font-sans);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 320px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-default);
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border-default);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .content {
+      padding: 16px;
+      flex: 1;
+      overflow-y: auto;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .form-input, .form-select {
+      width: 100%;
+      padding: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      color: var(--text-primary);
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      background: var(--accent-primary);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn:hover {
+      background: #7c3aed;
+    }
+    .main-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    iframe {
+      border: none;
+      width: 100%;
+      flex: 1;
+      background: white;
+    }
+    #loading {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="header">
+      <span>🎭</span> Add Test Step
+    </div>
+    <div class="content">
+      <div class="form-group">
+        <label class="form-label">Step Type</label>
+        <select id="step-type" class="form-select">
+          <option value="click">👆 Click</option>
+          <option value="fill">✏️ Fill / Type</option>
+          <option value="select">📋 Select Option</option>
+          <option value="check">☑️ Check</option>
+          <option value="hover">🖱️ Hover</option>
+          <option value="assertText">📝 Assert Text</option>
+          <option value="assertVisible">👁️ Assert Visible</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Selector</label>
+        <input type="text" id="step-selector" class="form-input" placeholder="Select an element..." readonly>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Value</label>
+        <input type="text" id="step-value" class="form-input" placeholder="Value to input or assert">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input type="text" id="step-description" class="form-input" placeholder="e.g. Click Login Button">
+      </div>
+      <button id="add-step-btn" class="btn">Add Step to Test</button>
+      <div id="status-message" style="margin-top: 12px; font-size: 0.85rem; color: #10b981; display: none;">
+        ✓ Step added to main tab!
+      </div>
+    </div>
+  </div>
+  <div class="main-area">
+    <div id="loading">Loading proxy...</div>
+    <iframe id="proxy-iframe" src="about:blank"></iframe>
+  </div>
+  <script src="/inspector.js"></script>
+</body>
+</html>

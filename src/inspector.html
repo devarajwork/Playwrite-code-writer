@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Visual Inspector</title>
+  <style>
+    :root {
+      --bg-surface: #1e1e2e;
+      --bg-panel: #252538;
+      --text-primary: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-primary: #8b5cf6;
+      --accent-hover: #7c3aed;
+      --border-default: rgba(148, 163, 184, 0.2);
+      --border-focus: rgba(139, 92, 246, 0.5);
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      height: 100vh;
+      font-family: var(--font-sans);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 340px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-default);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 4px 0 15px rgba(0,0,0,0.1);
+      z-index: 20;
+    }
+    .header {
+      padding: 20px;
+      border-bottom: 1px solid var(--border-default);
+      font-weight: 600;
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
+    }
+    .content {
+      padding: 20px;
+      flex: 1;
+      overflow-y: auto;
+    }
+    .form-group {
+      margin-bottom: 24px;
+    }
+    .form-label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+    .form-input, .form-select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      color: var(--text-primary);
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      transition: all 0.2s ease;
+    }
+    .form-input:focus, .form-select:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+    }
+    .form-input::placeholder {
+      color: #64748b;
+    }
+    .form-input[readonly] {
+      background: rgba(30, 30, 46, 0.5);
+      color: #cbd5e1;
+      cursor: default;
+    }
+    
+    #selector-choices-wrapper {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--border-default);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #selector-choices-dropdown {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8rem;
+      padding: 8px 10px;
+      background: rgba(30, 30, 46, 0.8);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover));
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 6px -1px rgba(139, 92, 246, 0.3), 0 2px 4px -1px rgba(139, 92, 246, 0.2);
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 8px -1px rgba(139, 92, 246, 0.4), 0 4px 6px -1px rgba(139, 92, 246, 0.3);
+    }
+    .btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 2px 4px -1px rgba(139, 92, 246, 0.3);
+    }
+
+    .main-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    iframe {
+      border: none;
+      width: 100%;
+      flex: 1;
+      background: white;
+    }
+    #loading {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="header">
+      <span style="font-size: 1.4rem;">🎭</span> Add Test Step
+    </div>
+    <div class="content">
+      <div class="form-group">
+        <label class="form-label">Step Type</label>
+        <select id="step-type" class="form-select">
+          <optgroup label="Navigation">
+            <option value="navigate">🌐 Navigate to URL</option>
+          </optgroup>
+          <optgroup label="Actions">
+            <option value="click">👆 Click</option>
+            <option value="dblclick">👆👆 Double Click</option>
+            <option value="fill">✏️ Fill / Type</option>
+            <option value="select">📋 Select Option</option>
+            <option value="check">☑️ Check</option>
+            <option value="uncheck">⬜ Uncheck</option>
+            <option value="hover">🖱️ Hover</option>
+            <option value="press">⌨️ Press Key</option>
+            <option value="scrollTo">📜 Scroll To</option>
+          </optgroup>
+          <optgroup label="Assertions">
+            <option value="assertVisible">👁️ Assert Visible</option>
+            <option value="assertText">📝 Assert Text</option>
+            <option value="assertValue">🔢 Assert Value</option>
+            <option value="assertUrl">🔗 Assert URL</option>
+          </optgroup>
+          <optgroup label="Utilities">
+            <option value="waitForSelector">⏳ Wait for Element</option>
+            <option value="waitForTimeout">⏱️ Wait (Time)</option>
+            <option value="screenshot">📸 Take Screenshot</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Selector</label>
+        <input type="text" id="step-selector" class="form-input" placeholder="Select an element..." readonly>
+        <div id="selector-choices-wrapper" class="hidden">
+          <label for="selector-choices-dropdown" class="form-label" style="font-size: 0.75rem; margin-bottom: 4px;">Alternative Selectors:</label>
+          <select id="selector-choices-dropdown" class="form-select"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Value</label>
+        <input type="text" id="step-value" class="form-input" placeholder="Value to input or assert">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input type="text" id="step-description" class="form-input" placeholder="e.g. Click Login Button">
+      </div>
+      <button id="add-step-btn" class="btn">Add Step to Test</button>
+      <div id="status-message" style="margin-top: 16px; font-size: 0.9rem; color: #10b981; display: none; text-align: center; font-weight: 500;">
+        <span style="display:inline-block; margin-right:4px;">✓</span> Step added successfully!
+      </div>
+    </div>
+  </div>
+  <div class="main-area">
+    <div id="loading">Loading proxy...</div>
+    <iframe id="proxy-iframe" src="about:blank"></iframe>
+  </div>
+  <script src="/inspector.js"></script>
+</body>
+</html>

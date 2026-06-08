@@ -2,10 +2,11 @@ import { Router } from 'express';
 import express from 'express';
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync, renameSync, writeFileSync, readFileSync } from 'fs';
 import { join, isAbsolute, dirname, basename } from 'path';
-import { spawn } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 
 const router = Router();
 let activeFrameworkPath = '';
+let activeProcess: ChildProcess | null = null;
 
 function resolveFrameworkPath(rawPath: string): string | null {
   if (!rawPath) return null;
@@ -291,15 +292,15 @@ router.put('/rename', (req, res) => {
   }
 });
 
-// ─── POST /api/framework/run ───────────────────────────────────────────────
+// ─── GET /api/framework/run ───────────────────────────────────────────────
 // Runs npm test (or a specific script) in the framework directory, streaming output
-router.post('/run', (req, res) => {
-  const { frameworkPath, script, module: moduleName, modulePath, headed } = req.body as {
-    frameworkPath: string;
-    script?: 'all' | 'setup' | 'module';
+router.get('/run', (req, res) => {
+  const { path: frameworkPath, script, module: moduleName, modulePath, headed } = req.query as {
+    path: string;
+    script?: 'all' | 'setup' | 'module' | 'tag';
     module?: string;
     modulePath?: string;
-    headed?: boolean;
+    headed?: string;
   };
 
   const resolved = resolveFrameworkPath(frameworkPath);
@@ -308,46 +309,33 @@ router.post('/run', (req, res) => {
     return;
   }
 
-  // Check if auth file exists before running chromium modules
-  const authFile = join(resolved, 'playwright', '.auth', 'user.json');
-  const hasAuth = existsSync(authFile);
-
-  let cmd = 'npm';
-  let cmdArgs = ['run'];
+  let cmd = 'npx';
+  let cmdArgs = ['playwright', 'test'];
 
   if (script === 'setup') {
-    cmdArgs.push('test:setup');
-  } else if (script === 'module' && moduleName) {
-    let filePath = modulePath;
-    if (!filePath) {
-      // Fallback: search in tests/modules/ first, then tests/
-      if (existsSync(join(resolved, 'tests', 'modules', moduleName))) {
-        filePath = `tests/modules/${moduleName}`;
+    cmdArgs.push('--project=setup');
+  } else if (script === 'module' && (moduleName || modulePath)) {
+    // Playwright uses the CLI argument to match against files within its testDir (which is usually ./tests)
+    // If we pass 'tests/modules/test.spec.ts', it might resolve to 'tests/tests/modules/test.spec.ts'.
+    // Passing just the moduleName or a relative path from the testDir works perfectly.
+    
+    let filterPattern = moduleName;
+    if (modulePath) {
+      // If modulePath is provided (e.g. tests/modules/foo.spec.ts), strip the leading 'tests/' 
+      // so it matches correctly inside the Playwright testDir.
+      if (modulePath.startsWith('tests/')) {
+        filterPattern = modulePath.substring(6); // remove 'tests/'
       } else {
-        filePath = `tests/${moduleName}`;
+        filterPattern = modulePath;
       }
     }
     
-    if (!hasAuth) {
-      cmdArgs.push('test:setup');
-    } else {
-      cmdArgs.push('test:modules', '--', filePath);
-    }
+    cmdArgs.push(filterPattern as string);
   } else if (script === 'tag' && moduleName) {
-    if (!hasAuth) {
-      cmdArgs.push('test:setup');
-    } else {
-      cmdArgs.push('test:modules', '--', '--grep', moduleName);
-    }
-  } else {
-    // Default to 'all' -> run everything (setup first, then modules via dependencies)
-    cmdArgs.push('test');
+    cmdArgs.push('--grep', moduleName);
   }
 
-  if (headed) {
-    if (!cmdArgs.includes('--')) {
-      cmdArgs.push('--');
-    }
+  if (headed === 'true') {
     cmdArgs.push('--headed');
   }
 
@@ -361,13 +349,7 @@ router.post('/run', (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   }
 
-  // Warn user if auth is missing and we're redirecting to setup
-  if (script === 'module' && !hasAuth) {
-    sendEvent({
-      type: 'stdout',
-      line: '⚠️  No auth session found. Running login setup first...',
-    });
-  }
+
 
   sendEvent({ type: 'start', command: `${cmd} ${cmdArgs.join(' ')}`, cwd: resolved });
 
@@ -376,6 +358,8 @@ router.post('/run', (req, res) => {
     shell: true,
     env: { ...process.env, FORCE_COLOR: '0' },
   });
+
+  activeProcess = child;
 
   child.stdout.on('data', (chunk: Buffer) => {
     const lines = chunk.toString().split('\n');
@@ -396,6 +380,7 @@ router.post('/run', (req, res) => {
   });
 
   child.on('close', (code, signal) => {
+    activeProcess = null;
     // code is null when process was killed by a signal (Windows: abnormal exit)
     // Treat null exit code as failure
     const exitCode = code ?? (signal ? 1 : 1);
@@ -405,6 +390,7 @@ router.post('/run', (req, res) => {
   });
 
   child.on('error', (err) => {
+    activeProcess = null;
     sendEvent({ type: 'error', message: err.message });
     res.end();
   });
@@ -414,6 +400,27 @@ router.post('/run', (req, res) => {
   // req.on('close', () => {
   //   child.kill();
   // });
+});
+
+// ─── POST /api/framework/stop ──────────────────────────────────────────────
+// Stops the currently running test
+router.post('/stop', (req, res) => {
+  if (activeProcess && activeProcess.pid) {
+    try {
+      if (process.platform === 'win32') {
+        // Use taskkill to kill the whole process tree to avoid orphan browsers
+        execSync(`taskkill /pid ${activeProcess.pid} /t /f`);
+      } else {
+        activeProcess.kill();
+      }
+      activeProcess = null;
+      res.json({ success: true, message: 'Test process killed' });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  } else {
+    res.json({ success: false, message: 'No running process found' });
+  }
 });
 
 // ─── GET /api/framework/report ─────────────────────────────────────────────

@@ -22,18 +22,38 @@ function cleanAndProxyHTML(html: string, originalUrl: string): string {
     }
   });
 
-  // 3. Rewrite relative src/href attributes starting with '/' (stylesheets, scripts, images)
-  // to start with /api/proxy/ so Vite correctly proxies them to Express.
-  html = html.replace(/(src|href)=["']\/([^"']*)["']/gi, (match, attr, path) => {
+  // 3. Rewrite relative src/href/data-src/poster attributes starting with '/' (stylesheets, scripts, images)
+  html = html.replace(/(src|href|data-src|poster)=["']\/([^"']*)["']/gi, (match, attr, path) => {
     if (path.startsWith('api/proxy') || path.startsWith('http')) {
       return match;
     }
     return `${attr}="/api/proxy/${path}"`;
   });
 
+  // 3b. Rewrite srcset attributes
+  html = html.replace(/srcset=["']([^"']*)["']/gi, (match, content) => {
+    // split by comma, then find URLs starting with /
+    const parts = content.split(',').map((part: string) => {
+      const trimmed = part.trim();
+      if (trimmed.startsWith('/') && !trimmed.startsWith('/api/proxy')) {
+        return part.replace(/(^\s*)\//, '$1/api/proxy/');
+      }
+      return part;
+    });
+    return `srcset="${parts.join(',')}"`;
+  });
+
+  // 3c. Rewrite inline CSS url('/...')
+  html = html.replace(/url\(['"]?\/([^'"\)]*)['"]?\)/gi, (match, path) => {
+    if (path.startsWith('api/proxy') || path.startsWith('http') || path.startsWith('data:')) {
+      return match;
+    }
+    return `url('/api/proxy/${path}')`;
+  });
+
   // 4. Rewrite absolute target URLs in src/href to point to local proxy paths
   const escapedOrigin = targetOrigin.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  const absoluteRegex = new RegExp(`(src|href)=["']${escapedOrigin}(/[^"']*)["']`, 'gi');
+  const absoluteRegex = new RegExp(`(src|href|data-src|poster)=["']${escapedOrigin}(/[^"']*)["']`, 'gi');
   html = html.replace(absoluteRegex, (match, attr, path) => {
     if (attr.toLowerCase() === 'href' && match.toLowerCase().includes('<a')) {
       return `href="/api/proxy?url=${encodeURIComponent(targetOrigin + path)}"`;
