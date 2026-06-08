@@ -126,9 +126,19 @@ router.get('/', async (req, res) => {
   }
 
   console.log(`🌐 Proxying website for live visual selector: ${url}`);
+  
+  let isResponded = false;
+  const hardTimeout = setTimeout(() => {
+    if (!isResponded) {
+      isResponded = true;
+      console.error('Proxy hard timeout reached (25s)!');
+      res.status(504).send('Gateway Timeout: The proxy took too long to load the page.');
+    }
+  }, 25000);
 
   let browser;
   try {
+    console.log('Launching Playwright browser...');
     try {
       browser = await chromium.launch({ headless: true });
     } catch {
@@ -140,15 +150,21 @@ router.get('/', async (req, res) => {
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     });
 
+    console.log('Navigating to URL...');
     const page = await context.newPage();
-    await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      // Wait a brief moment for async elements
+      await page.waitForTimeout(2000);
+    } catch (e) {
+      console.warn(`Timeout waiting for ${url} to finish loading. Proceeding with captured content.`);
+    }
 
-    // Wait a brief moment for async elements
-    await page.waitForTimeout(1000);
-
+    console.log('Extracting HTML content...');
     let html = await page.content();
     const actualUrl = page.url();
     
+    console.log('Cleaning and proxying HTML...');
     // Clean, normalise, and proxy relative paths in HTML
     html = cleanAndProxyHTML(html, actualUrl);
 
@@ -202,6 +218,29 @@ router.get('/', async (req, res) => {
               window.opener.postMessage(data, '*');
             }
           }
+
+          // Force an isolated in-memory storage to clear cache automatically on every load
+          const createDummyStorage = () => ({
+            _data: {},
+            getItem: function(k) { return this._data.hasOwnProperty(k) ? this._data[k] : null; },
+            setItem: function(k, v) { this._data[k] = String(v); },
+            removeItem: function(k) { delete this._data[k]; },
+            clear: function() { this._data = {}; },
+            get length() { return Object.keys(this._data).length; },
+            key: function(i) { return Object.keys(this._data)[i] || null; }
+          });
+          
+          try {
+            const memLocal = createDummyStorage();
+            const memSession = createDummyStorage();
+            Object.defineProperty(window, 'localStorage', { get: () => memLocal });
+            Object.defineProperty(window, 'sessionStorage', { get: () => memSession });
+            
+            // Clear all cookies automatically
+            document.cookie.split(";").forEach(function(c) {
+              document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+          } catch(e) { console.warn('Could not override storage', e); }
 
           // Intercept XHR and Fetch calls to proxy absolute external URLs
           const originalFetch = window.fetch;
@@ -435,11 +474,21 @@ router.get('/', async (req, res) => {
       html = injection + html;
     }
 
-    res.send(html);
+    console.log('Sending response to iframe...');
+    if (!isResponded) {
+      isResponded = true;
+      res.send(html);
+    }
   } catch (err: any) {
-    res.status(500).send(`Error loading page preview via proxy: ${err.message}`);
+    console.error('Proxy Error:', err);
+    if (!isResponded) {
+      isResponded = true;
+      res.status(500).send(`Error loading page preview via proxy: ${err.message}`);
+    }
   } finally {
+    clearTimeout(hardTimeout);
     if (browser) {
+      console.log('Closing browser...');
       await browser.close();
     }
   }

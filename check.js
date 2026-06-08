@@ -1,8 +1,10 @@
-const fs = require('fs');
-const content = fs.readFileSync('C:\\Users\\admin\\Project\\Playwrite Tester\\src\\main.js', 'utf8');
-const lines = content.split('\n');
-lines.forEach((line, i) => {
-  if (line.includes('fwSetupList') || line.includes('fwModulesList') || line.includes('fwNewSetupBtn') || line.includes('fwNewModuleBtn')) {
-    console.log(`Line ${i + 1}: ${line}`);
-  }
-});
+import { parsePlaywrightScript } from './src/utils/helpers.js';
+import fs from 'fs';
+
+try {
+  const code = fs.readFileSync('C:/Users/admin/Project/Playwrite jugl trial/tests/login cx/scenario-1.spec.ts', 'utf8');
+  const result = parsePlaywrightScript(code);
+  fs.writeFileSync('output.json', JSON.stringify(result, null, 2));
+} catch(e) {
+  fs.writeFileSync('output.json', JSON.stringify({ error: e.message }));
+}

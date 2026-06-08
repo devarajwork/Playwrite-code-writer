@@ -160,7 +160,7 @@ export function parsePlaywrightScript(code) {
   }
 
   // Extremely robust body extraction: just find the async page block and the last closing brace
-  const bodyStartMatch = code.match(/async\s*\(\s*\{\s*page\s*\}\s*\)\s*=>\s*\{/);
+  const bodyStartMatch = code.match(/async\s*\(\s*\{[^}]*page[^}]*\}\s*\)\s*=>\s*\{/);
   if (!bodyStartMatch) return { testName, tags, steps };
   
   const startIdx = bodyStartMatch.index + bodyStartMatch[0].length;

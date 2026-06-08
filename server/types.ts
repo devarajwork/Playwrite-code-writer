@@ -25,7 +25,8 @@ export type StepType =
   | 'screenshot'
   | 'press'
   | 'dblclick'
-  | 'scrollTo';
+  | 'scrollTo'
+  | 'waitForTimeout';
 
 export interface ScannedElement {
   tagName: string;

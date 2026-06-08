@@ -2,6 +2,7 @@
   "name": "playwright-test-builder",
   "version": "1.0.0",
   "description": "Web-based Playwright Testing Tool — Visual test builder with element scanner and code generator",
+  "main": "electron-main.js",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
@@ -11,7 +12,9 @@
     "compile": "tsc",
     "test": "playwright test",
     "install:browsers": "playwright install chromium",
-    "start": "node dist/server/index.js"
+    "start": "node dist/server/index.js",
+    "start:desktop": "node download-icon.js && npm run build && npm run compile && electron .",
+    "release": "npm run build && npm run compile && electron-builder --publish always"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
@@ -25,8 +28,35 @@
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "concurrently": "^9.1.0",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "electron-updater": "^6.8.9",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "com.playwright.builder",
+    "productName": "Playwright Builder",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron-main.js",
+      "package.json",
+      "icon.png"
+    ],
+    "icon": "icon.png",
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "devarajwork",
+      "repo": "Playwrite-code-writer"
+    }
   }
 }

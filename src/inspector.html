@@ -129,11 +129,14 @@
       display: flex;
       flex-direction: column;
       position: relative;
+      overflow: auto;
     }
     iframe {
       border: none;
+      min-width: 1280px;
       width: 100%;
-      flex: 1;
+      height: 100%;
+      min-height: 800px;
       background: white;
     }
     #loading {
@@ -213,6 +216,6 @@
     <div id="loading">Loading proxy...</div>
     <iframe id="proxy-iframe" src="about:blank"></iframe>
   </div>
-  <script src="/inspector.js"></script>
+  <script type="module" src="/inspector.js"></script>
 </body>
 </html>

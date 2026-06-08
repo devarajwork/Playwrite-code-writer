@@ -112,8 +112,9 @@ export async function scanUrlLightweight(url: string): Promise<ScanResponse> {
     if (!tagName) return;
 
     // Gather attributes
+    const element = el as any;
     const attrs: Record<string, string> = {};
-    for (const [k, v] of Object.entries(el.attribs || {})) {
+    for (const [k, v] of Object.entries(element.attribs || {})) {
       attrs[k] = String(v ?? '');
     }
 
