@@ -47,10 +47,21 @@
         <input type="text" id="test-name-input" class="toolbar__input" placeholder="e.g. User Login Flow" value="Jugl Login Test" style="font-weight:var(--font-medium);" />
       </div>
 
+      <div class="toolbar__input-group">
+        <label for="env-select" class="toolbar__label">Environment</label>
+        <select id="env-select" class="toolbar__input" style="min-width: 120px; font-weight: var(--font-medium);">
+          <option value="https://web-dev.jugl.com">Dev</option>
+          <option value="https://staging.jugl.com">Staging</option>
+          <option value="https://web.jugl.com">Prod</option>
+        </select>
+      </div>
+
+
+
       <div class="toolbar__input-group toolbar__input-group--wide">
-        <label for="url-input" class="toolbar__label">Target URL</label>
+        <label for="url-input" class="toolbar__label">Path</label>
         <div class="toolbar__url-wrapper">
-          <input type="url" id="url-input" class="toolbar__input toolbar__input--url" placeholder="https://web-dev.jugl.com/" value="https://web-dev.jugl.com/" />
+          <input type="text" id="url-input" class="toolbar__input toolbar__input--url" placeholder="/login" value="/" />
           <button id="scan-btn" class="btn btn--primary btn--scan" title="Open Interactive Inspector">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
             Open Visual Inspector
@@ -81,7 +92,16 @@
           Test Steps
         </h2>
         <span class="panel__badge" id="step-count">0</span>
-        <button id="run-btn" class="btn btn--primary btn--small" title="Run test programmatically" style="margin-left: auto;">
+        
+        <div style="display:flex; align-items:center; gap:8px; margin-left: auto; margin-right: 8px;">
+          <select id="live-runner-workspace" class="form-select" style="font-size:var(--text-xs); padding:2px 8px; min-height:28px; height:28px; width: 130px; background: var(--bg-surface); border-color: var(--border-subtle); color: var(--text-secondary); cursor: pointer;" title="Select Auth Session for Live Runner">
+            <option value="auto">Auto Session</option>
+            <option value="cx">CX (cx-user.json)</option>
+            <option value="pm">PM (pm-user.json)</option>
+          </select>
+        </div>
+
+        <button id="run-btn" class="btn btn--primary btn--small" title="Run test programmatically">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Run Test
         </button>
@@ -94,9 +114,11 @@
             <input type="text" id="test-tags-input" class="tag-input-field" placeholder="Add tag & press Enter" />
           </div>
         </div>
-        <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-          <input type="checkbox" id="disable-auth-checkbox" style="cursor:pointer;" />
-          <label for="disable-auth-checkbox" style="font-size:var(--text-xs); color:var(--text-secondary); cursor:pointer;">Run unauthenticated (Ignore saved login session)</label>
+        <div style="display:flex; align-items:center; gap:16px; margin-top:8px; justify-content: space-between;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="disable-auth-checkbox" style="cursor:pointer;" />
+            <label for="disable-auth-checkbox" style="font-size:var(--text-xs); color:var(--text-secondary); cursor:pointer;">Run unauthenticated (Ignore saved login session)</label>
+          </div>
         </div>
       </div>
       <div class="panel__content" id="steps-container">
@@ -253,6 +275,12 @@
           <input type="text" id="step-value" class="form-input" placeholder="Enter value..." />
         </div>
 
+        <div class="form-group hidden" id="delay-group">
+          <label for="step-delay" class="form-label">Typing Delay (ms) <span class="form-optional">(optional)</span></label>
+          <input type="number" id="step-delay" class="form-input" placeholder="e.g. 100" min="0" step="10" />
+          <span class="form-hint">Adds a delay between keystrokes to simulate human typing and bypass bot detection</span>
+        </div>
+
         <div class="form-group hidden" id="wait-until-group">
           <label for="step-wait-until" class="form-label">Wait Until (Navigate)</label>
           <select id="step-wait-until" class="form-select">
@@ -301,6 +329,13 @@
               <input type="checkbox" id="fw-headed-toggle" checked>
               <span class="toggle-slider"></span>
             </label>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <select id="workspace-select" class="form-select" style="font-size:var(--text-sm);min-height:36px;box-sizing:border-box;">
+              <option value="all">All Workspaces</option>
+              <option value="cx">CX Portal</option>
+              <option value="pm">Project Management</option>
+            </select>
           </div>
           <button id="fw-run-all-btn" class="btn btn--primary" style="font-size:var(--text-sm);min-height:36px;padding:6px var(--space-4);">⚡ Run All</button>
           <button id="fw-run-setup-btn" class="btn btn--secondary" style="font-size:var(--text-sm);min-height:36px;padding:6px var(--space-4);">🔑 Setup Only</button>
@@ -450,13 +485,28 @@
         <button class="modal__close" id="settings-close">&times;</button>
       </div>
       <div class="modal__body">
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:var(--space-4);">
             <label for="framework-path-input" class="form-label">🎭 Framework Project Path</label>
             <div style="display:flex; gap:var(--space-2);">
               <input type="text" id="framework-path-input" class="form-input" style="flex:1" placeholder="C:\Projects\my-tests" />
               <button id="framework-path-browse-btn" class="btn btn--secondary">Browse</button>
             </div>
             <span class="form-hint">Absolute path to your Playwright folder.</span>
+          </div>
+
+          <div class="fw-section" style="margin-bottom: 0;">
+            <div class="fw-section__title">🔑 Local Test Credentials</div>
+            <span class="form-hint" style="display:block; margin-bottom:var(--space-3); margin-top:-4px;">These are saved directly to your local <code style="background:var(--bg-panel-alt);padding:2px 4px;border-radius:4px;">.env.dev</code> file and will be used when you run "Setup Only".</span>
+            
+            <div class="form-group">
+              <label for="cx-phone-input" class="form-label">CX Test Phone (CX_TEST_PHONE)</label>
+              <input type="text" id="cx-phone-input" class="form-input" placeholder="e.g. 0009090000" />
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="pm-phone-input" class="form-label">PM Test Phone (PM_TEST_PHONE)</label>
+              <input type="text" id="pm-phone-input" class="form-input" placeholder="e.g. 0009779000" />
+            </div>
           </div>
       </div>
       <div class="modal__footer">

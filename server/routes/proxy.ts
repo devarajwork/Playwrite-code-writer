@@ -219,28 +219,8 @@ router.get('/', async (req, res) => {
             }
           }
 
-          // Force an isolated in-memory storage to clear cache automatically on every load
-          const createDummyStorage = () => ({
-            _data: {},
-            getItem: function(k) { return this._data.hasOwnProperty(k) ? this._data[k] : null; },
-            setItem: function(k, v) { this._data[k] = String(v); },
-            removeItem: function(k) { delete this._data[k]; },
-            clear: function() { this._data = {}; },
-            get length() { return Object.keys(this._data).length; },
-            key: function(i) { return Object.keys(this._data)[i] || null; }
-          });
-          
-          try {
-            const memLocal = createDummyStorage();
-            const memSession = createDummyStorage();
-            Object.defineProperty(window, 'localStorage', { get: () => memLocal });
-            Object.defineProperty(window, 'sessionStorage', { get: () => memSession });
-            
-            // Clear all cookies automatically
-            document.cookie.split(";").forEach(function(c) {
-              document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-            });
-          } catch(e) { console.warn('Could not override storage', e); }
+          // Storage overrides removed to allow login sessions to persist across SPA navigations
+
 
           // Intercept XHR and Fetch calls to proxy absolute external URLs
           const originalFetch = window.fetch;

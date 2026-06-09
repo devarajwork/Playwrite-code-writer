@@ -72,7 +72,7 @@ export function highlightCode(code) {
 
       // Methods after dots: .click(), .fill(), etc.
       highlighted = highlighted.replace(
-        /\.(goto|click|dblclick|fill|selectOption|check|uncheck|hover|press|waitFor|waitForSelector|screenshot|scrollIntoViewIfNeeded|toBeVisible|toContainText|toHaveValue|toHaveURL|getByRole|getByTestId|getByLabel|getByPlaceholder|getByText|locator|page)\b/g,
+        /\.(goto|click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|waitFor|waitForSelector|screenshot|scrollIntoViewIfNeeded|toBeVisible|toContainText|toHaveValue|toHaveURL|getByRole|getByTestId|getByLabel|getByPlaceholder|getByText|locator|page)\b/g,
         '.<span class="prop">$1</span>'
       );
 
@@ -190,6 +190,7 @@ export function parsePlaywrightScript(code) {
     let selector = '';
     let value = '';
     let waitUntil = '';
+    let delay = undefined;
     
     if (line.includes('page.goto(')) {
       type = 'navigate';
@@ -211,6 +212,14 @@ export function parsePlaywrightScript(code) {
       selector = extractLocator(line);
       const m = line.match(/\.fill\(['"`](.*?)['"`]\)/);
       if (m) value = m[1];
+    }
+    else if (line.includes('.pressSequentially(')) {
+      type = 'fill';
+      selector = extractLocator(line);
+      const m = line.match(/\.pressSequentially\(['"`](.*?)['"`]/);
+      if (m) value = m[1];
+      const dm = line.match(/delay:\s*(\d+)/);
+      if (dm) delay = parseInt(dm[1], 10);
     }
     else if (line.includes('.selectOption(')) {
       type = 'select';
@@ -292,6 +301,7 @@ export function parsePlaywrightScript(code) {
         selector,
         value,
         waitUntil,
+        delay,
         description: currentDescription,
         order: steps.length
       });
@@ -303,7 +313,7 @@ export function parsePlaywrightScript(code) {
 
 function extractLocator(line) {
   // Use greedy .* up to the action method call to handle nested parentheses
-  const m = line.match(/(page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))(?=\.(?:click|dblclick|fill|selectOption|check|uncheck|hover|press|scrollIntoViewIfNeeded))/);
+  const m = line.match(/(page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))(?=\.(?:click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|scrollIntoViewIfNeeded))/);
   return m ? m[1] : '';
 }
 

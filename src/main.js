@@ -47,6 +47,7 @@ const dom = {
   testTagsInput: document.getElementById('test-tags-input'),
   testTagsContainer: document.getElementById('test-tags-container'),
   disableAuthCheckbox: document.getElementById('disable-auth-checkbox'),
+  envSelect: document.getElementById('env-select'),
   urlInput: document.getElementById('url-input'),
   scanBtn: document.getElementById('scan-btn'),
   saveBtn: document.getElementById('save-btn'),
@@ -84,6 +85,8 @@ const dom = {
   selectorChoicesWrapper: document.getElementById('selector-choices-wrapper'),
   selectorChoicesDropdown: document.getElementById('selector-choices-dropdown'),
   valueGroup: document.getElementById('value-group'),
+  delayGroup: document.getElementById('delay-group'),
+  stepDelay: document.getElementById('step-delay'),
   waitUntilGroup: document.getElementById('wait-until-group'),
   stepWaitUntil: document.getElementById('step-wait-until'),
   openModal: document.getElementById('open-modal'),
@@ -116,6 +119,8 @@ const dom = {
   settingsSave: document.getElementById('settings-save'),
   frameworkPathInput: document.getElementById('framework-path-input'),
   frameworkPathBrowseBtn: document.getElementById('framework-path-browse-btn'),
+  cxPhoneInput: document.getElementById('cx-phone-input'),
+  pmPhoneInput: document.getElementById('pm-phone-input'),
   // Framework Run Modal
   fwRunModal: document.getElementById('fw-run-modal'),
   fwRunClose: document.getElementById('fw-run-close'),
@@ -354,7 +359,13 @@ function bindEvents() {
           renderTags();
           if (dom.testTagsInput) dom.testTagsInput.value = '';
           const navStep = state.steps.find(s => s.type === 'navigate');
-          if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
+          if (navStep) {
+            let pathVal = navStep.value || navStep.selector;
+            if (pathVal.startsWith('http')) {
+              try { pathVal = new URL(pathVal).pathname + new URL(pathVal).search; } catch (e) {}
+            }
+            dom.urlInput.value = pathVal;
+          }
           state.disableAuth = data.content.includes('storageState: { cookies: [], origins: [] }');
           if (dom.disableAuthCheckbox) dom.disableAuthCheckbox.checked = state.disableAuth;
           
@@ -523,14 +534,20 @@ function bindEvents() {
 // SCAN HANDLER
 // ============================================
 async function handleScan() {
-  const url = dom.urlInput.value.trim();
-  if (!url) {
-    showToast('Please enter a URL to scan', 'error');
-    return;
-  }
+  const path = dom.urlInput.value.trim() || '/';
+  const envUrl = dom.envSelect ? dom.envSelect.value.replace(/\/$/, '') : 'https://web-dev.jugl.com';
+  
+  let fullUrl = path.startsWith('http') ? path : `${envUrl}${path.startsWith('/') ? path : '/' + path}`;
 
   // Open the visual inspector in a new window/tab
-  window.open(`/inspector.html?url=${encodeURIComponent(url)}`, '_blank', 'width=1200,height=800');
+  window.open(`/inspector.html?url=${encodeURIComponent(fullUrl)}`, '_blank', 'width=1200,height=800');
+
+  let stepValue = path;
+  if (path.startsWith('http')) {
+    try { stepValue = new URL(path).pathname + new URL(path).search; } catch (e) {}
+  } else if (!path.startsWith('/')) {
+    stepValue = '/' + path;
+  }
 
   // Auto-add navigation step if there are no steps yet
   if (state.steps.length === 0) {
@@ -538,8 +555,8 @@ async function handleScan() {
       id: generateId(),
       type: 'navigate',
       selector: '',
-      value: url,
-      description: `Navigate to ${url}`,
+      value: stepValue,
+      description: `Navigate to ${stepValue}`,
       order: 0,
     });
     renderSteps();
@@ -778,6 +795,7 @@ function openModal(editStep = null) {
     dom.stepType.value = editStep.type;
     dom.stepSelector.value = editStep.selector;
     dom.stepValue.value = editStep.value;
+    if (dom.stepDelay) dom.stepDelay.value = editStep.delay !== undefined ? editStep.delay : '';
     if (dom.stepWaitUntil) dom.stepWaitUntil.value = editStep.waitUntil || '';
     dom.stepDescription.value = editStep.description;
     dom.modalAdd.textContent = 'Update Step';
@@ -785,6 +803,7 @@ function openModal(editStep = null) {
     dom.stepType.value = 'click';
     dom.stepSelector.value = '';
     dom.stepValue.value = '';
+    if (dom.stepDelay) dom.stepDelay.value = '';
     if (dom.stepWaitUntil) dom.stepWaitUntil.value = '';
     dom.stepDescription.value = '';
     dom.modalAdd.textContent = 'Add Step';
@@ -817,6 +836,7 @@ function openModalWithSelector(selector, tagName, selectors = null) {
   dom.stepType.value = typeMap[tagName] || 'click';
   dom.stepSelector.value = selector;
   dom.stepValue.value = '';
+  if (dom.stepDelay) dom.stepDelay.value = '';
   if (dom.stepWaitUntil) dom.stepWaitUntil.value = '';
   dom.stepDescription.value = '';
   dom.modalAdd.textContent = 'Add Step';
@@ -847,6 +867,11 @@ function updateStepTypeFields() {
     dom.waitUntilGroup.classList.toggle('hidden', type !== 'navigate');
   }
 
+  // Show/hide delay field
+  if (dom.delayGroup) {
+    dom.delayGroup.classList.toggle('hidden', type !== 'fill');
+  }
+
   // Update placeholder
   if (info.valuePlaceholder) {
     dom.stepValue.placeholder = info.valuePlaceholder;
@@ -856,8 +881,15 @@ function updateStepTypeFields() {
 function handleAddStep() {
   const type = dom.stepType.value;
   const selector = dom.stepSelector.value.trim();
-  const value = dom.stepValue.value.trim();
+  let value = dom.stepValue.value.trim();
+  const delayVal = dom.stepDelay ? parseInt(dom.stepDelay.value.trim(), 10) : NaN;
+  const delay = isNaN(delayVal) ? undefined : delayVal;
   const waitUntil = dom.stepWaitUntil ? dom.stepWaitUntil.value : '';
+  
+  // Strip absolute URLs for navigation steps
+  if (type === 'navigate' && value.startsWith('http')) {
+    try { value = new URL(value).pathname + new URL(value).search; } catch (e) {}
+  }
   const description = dom.stepDescription.value.trim();
   const info = STEP_TYPE_INFO[type];
 
@@ -881,6 +913,8 @@ function handleAddStep() {
       step.type = type;
       step.selector = selector;
       step.value = value;
+      if (type === 'fill') step.delay = delay;
+      else delete step.delay;
       step.waitUntil = waitUntil;
       step.description = description;
     }
@@ -892,6 +926,7 @@ function handleAddStep() {
       type,
       selector,
       value,
+      delay: type === 'fill' ? delay : undefined,
       waitUntil,
       description,
       order: state.steps.length,
@@ -1194,6 +1229,9 @@ function generateStepLine(step) {
     case 'dblclick':
       return `await ${selectorExpr}.dblclick();`;
     case 'fill':
+      if (step.delay !== undefined && step.delay > 0) {
+        return `await ${selectorExpr}.pressSequentially(${safeVal}, { delay: ${step.delay} });`;
+      }
       return `await ${selectorExpr}.fill(${safeVal});`;
     case 'select':
       return `await ${selectorExpr}.selectOption(${safeVal});`;
@@ -1305,7 +1343,13 @@ async function handleOpenConfirm() {
     }
     
     const navStep = state.steps.find(s => s.type === 'navigate');
-    if (navStep) dom.urlInput.value = navStep.value || navStep.selector;
+    if (navStep) {
+      let pathVal = navStep.value || navStep.selector;
+      if (pathVal.startsWith('http')) {
+        try { pathVal = new URL(pathVal).pathname + new URL(pathVal).search; } catch (e) {}
+      }
+      dom.urlInput.value = pathVal;
+    }
     
     state.disableAuth = data.content.includes('storageState: { cookies: [], origins: [] }');
     if (dom.disableAuthCheckbox) {
@@ -1325,9 +1369,23 @@ async function handleOpenConfirm() {
 // SETTINGS LOGIC
 // ============================================
 function openSettingsModal() {
-  if (dom.frameworkPathInput) {
-    document.getElementById('framework-path-input').value = state.settings.frameworkPath;
-    dom.settingsModal.classList.remove('hidden');
+  dom.frameworkPathInput.value = state.settings.frameworkPath || '';
+  dom.settingsModal.classList.remove('hidden');
+  
+  // Load env variables if framework path is set
+  if (state.settings.frameworkPath) {
+    try {
+      fetch(`/api/framework/env?path=${encodeURIComponent(state.settings.frameworkPath)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && !data.error) {
+            if (dom.cxPhoneInput) dom.cxPhoneInput.value = data.cxPhone || '';
+            if (dom.pmPhoneInput) dom.pmPhoneInput.value = data.pmPhone || '';
+          }
+        });
+    } catch (e) {
+      console.error('Failed to load env vars', e);
+    }
   }
 }
 
@@ -1335,7 +1393,7 @@ function closeSettingsModal() {
   dom.settingsModal.classList.add('hidden');
 }
 
-function handleSaveSettings() {
+async function handleSaveSettings() {
   if (dom.frameworkPathInput) {
     const fwPath = dom.frameworkPathInput.value.trim();
     state.settings.frameworkPath = fwPath;
@@ -1343,6 +1401,23 @@ function handleSaveSettings() {
   }
 
   localStorage.setItem('pw_builder_settings', JSON.stringify(state.settings));
+
+  // Save env variables if framework path is set
+  if (state.settings.frameworkPath) {
+    try {
+      await fetch('/api/framework/env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: state.settings.frameworkPath,
+          cxPhone: dom.cxPhoneInput ? dom.cxPhoneInput.value.trim() : '',
+          pmPhone: dom.pmPhoneInput ? dom.pmPhoneInput.value.trim() : ''
+        })
+      });
+    } catch (e) {
+      console.error('Failed to save env vars', e);
+    }
+  }
 
   showToast('Settings saved!', 'success');
   closeSettingsModal();
@@ -1497,7 +1572,24 @@ async function handleRunExecution() {
   const executedStepIds = new Set();
 
   try {
-    const response = await runTestSteps(state.steps);
+    const envUrl = dom.envSelect ? dom.envSelect.value.replace(/\/$/, '') : undefined;
+    const liveWorkspaceSelect = document.getElementById('live-runner-workspace');
+    let workspaceVal = liveWorkspaceSelect ? liveWorkspaceSelect.value : 'auto';
+    
+    if (workspaceVal === 'auto' || workspaceVal === 'all') {
+      if (state.settings && state.settings.saveLocation) {
+        const loc = state.settings.saveLocation.toLowerCase();
+        if (loc.includes('/pm/') || loc.includes('\\pm\\') || loc.endsWith('/pm') || loc.endsWith('\\pm')) {
+          workspaceVal = 'pm';
+        } else {
+          workspaceVal = 'cx';
+        }
+      } else {
+        workspaceVal = 'cx';
+      }
+    }
+
+    const response = await runTestSteps(state.steps, envUrl, state.disableAuth, state.settings.frameworkPath, workspaceVal);
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
@@ -1590,6 +1682,18 @@ async function handleRunExecution() {
               dom.runnerStatStatus.textContent = 'Error';
               dom.runnerStatStatus.style.color = 'var(--color-danger)';
               showToast(event.message || 'Run execution error', 'error');
+            } else if (event.type === 'log') {
+              const row = document.createElement('div');
+              row.className = 'runner-step-row';
+              row.style.background = 'var(--bg-panel)';
+              row.innerHTML = `
+                <div class="runner-step-row__status" style="opacity: 0.5">ℹ️</div>
+                <div class="runner-step-row__details">
+                  <span class="runner-step-row__title" style="color: var(--text-muted); font-size: 0.8rem;">${escapeHtml(event.message)}</span>
+                </div>
+                <div class="runner-step-row__meta"></div>
+              `;
+              dom.runnerLogs.prepend(row);
             }
           } catch (err) {
             console.error('Failed to parse SSE event:', jsonStr, err);
@@ -1876,7 +1980,7 @@ function renderTree(node) {
             <button class="vscode-tree-btn vscode-tree-run" title="Run Tests"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
             <button class="vscode-tree-btn vscode-tree-new-file" title="New File"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></button>
             <button class="vscode-tree-btn vscode-tree-new-folder" title="New Folder"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
-            ${node.path !== 'tests' ? `
+            ${node.path !== 'tests' && !node.path.replace(/\\/g, '/').includes('/setup') ? `
             <button class="vscode-tree-btn vscode-tree-rename" title="Rename"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
             <button class="vscode-tree-btn vscode-tree-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
             ` : ''}
@@ -1897,8 +2001,10 @@ function renderTree(node) {
         </div>
         <div class="vscode-tree-actions">
           <button class="vscode-tree-btn vscode-tree-run" title="Run Tests"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
+          ${!node.path.replace(/\\/g, '/').includes('/setup') ? `
           <button class="vscode-tree-btn vscode-tree-rename" title="Rename"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
           <button class="vscode-tree-btn vscode-tree-delete" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+          ` : ''}
         </div>
       </div>
     `;
@@ -2002,13 +2108,18 @@ function bindTreeEvents() {
       el.addEventListener('click', async (e) => {
         if (e.target.closest('.vscode-tree-btn')) return; // Ignore if clicking action buttons
         
+        const path = el.dataset.path; 
+        if (path.replace(/\\/g, '/').includes('/setup')) {
+          showToast('Editing setup files from the UI is disabled.', 'warning');
+          return;
+        }
+
         // Show confirmation if there is an existing test in the editor
         if (state.isDirty) {
           const confirmSwitch = await customConfirm('A test is currently open in the editor with unsaved changes. Any unsaved changes will be lost. Do you want to open this script anyway?', 'Discard Unsaved Changes?');
           if (!confirmSwitch) return;
         }
 
-        const path = el.dataset.path; 
         const parts = path.split('/');
         const filename = parts.pop();
         const folder = parts.slice(1).join('/'); 
@@ -2179,7 +2290,23 @@ async function runFrameworkTest(scriptType, moduleName = '', modulePath = '') {
 
   const headedToggle = document.getElementById('fw-headed-toggle');
   const headed = headedToggle ? headedToggle.checked : true;
-  const params = new URLSearchParams({ path: state.settings.frameworkPath, script: scriptType, module: moduleName, headed: headed.toString() });
+  
+  const envUrl = dom.envSelect ? dom.envSelect.value : '';
+  let envName = 'dev';
+  if (envUrl.includes('staging')) envName = 'staging';
+  if (envUrl === 'https://web.jugl.com') envName = 'prod';
+
+  const workspaceSelect = document.getElementById('workspace-select');
+  const workspaceVal = workspaceSelect ? workspaceSelect.value : 'all';
+
+  const params = new URLSearchParams({ 
+    path: state.settings.frameworkPath, 
+    script: scriptType, 
+    module: moduleName, 
+    headed: headed.toString(), 
+    env: envName,
+    workspace: workspaceVal
+  });
   if (modulePath) params.append('modulePath', modulePath);
   state.fw.eventSource = new EventSource(`/api/framework/run?${params.toString()}`);
   
@@ -2305,4 +2432,21 @@ setInterval(async () => {
     // Ignore errors for background polling
   }
 }, 3000);
+
+// Clear auth directory when environment changes
+if (dom.envSelect) {
+  dom.envSelect.addEventListener('change', async () => {
+    if (!state.settings.frameworkPath) return;
+    try {
+      await fetch('/api/framework/auth', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frameworkPath: state.settings.frameworkPath })
+      });
+      showToast('Environment switched. Auth tokens cleared to trigger fresh login on next run.', 'info');
+    } catch (e) {
+      console.error('Failed to clear auth:', e);
+    }
+  });
+}
 

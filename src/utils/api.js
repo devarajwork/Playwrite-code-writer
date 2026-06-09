@@ -47,11 +47,11 @@ export async function saveTest(filename, code, saveLocation = '') {
   return response.json();
 }
 
-export async function runTestSteps(steps) {
+export async function runTestSteps(steps, baseURL, disableAuth = false, frameworkPath = '', workspace = 'cx') {
   const response = await fetch(`${API_BASE}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ steps }),
+    body: JSON.stringify({ steps, baseURL, disableAuth, frameworkPath, workspace }),
   });
 
   if (!response.ok) {

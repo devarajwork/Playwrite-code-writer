@@ -34,13 +34,76 @@ router.get('/status', (req, res) => {
   activeFrameworkPath = resolved;
 
   // Check if playwright/.auth exists
-  const hasAuth = existsSync(join(resolved, 'playwright', '.auth', 'user.json'));
+  const hasAuth = existsSync(join(resolved, 'playwright', '.auth', 'user.json')) || existsSync(join(resolved, 'playwright', '.auth', 'pm-user.json'));
 
   res.json({
     connected: true,
     path: resolved,
     hasAuth,
   });
+});
+
+// ─── ENV /api/framework/env ─────────────────────────────────────────────
+router.get('/env', (req, res) => {
+  const rawPath = (req.query.path as string) || '';
+  const resolved = resolveFrameworkPath(rawPath);
+
+  if (!resolved) {
+    res.status(400).json({ error: 'Invalid framework path' });
+    return;
+  }
+
+  const envPath = join(resolved, '.env.dev');
+  let cxPhone = '';
+  let pmPhone = '';
+
+  if (existsSync(envPath)) {
+    const content = readFileSync(envPath, 'utf-8');
+    const cxMatch = content.match(/^CX_TEST_PHONE=(.*)$/m);
+    const pmMatch = content.match(/^PM_TEST_PHONE=(.*)$/m);
+    if (cxMatch) cxPhone = cxMatch[1].trim();
+    if (pmMatch) pmPhone = pmMatch[1].trim();
+  }
+
+  res.json({ cxPhone, pmPhone });
+});
+
+router.post('/env', express.json(), (req, res) => {
+  const rawPath = (req.body.path as string) || '';
+  const resolved = resolveFrameworkPath(rawPath);
+
+  if (!resolved) {
+    res.status(400).json({ error: 'Invalid framework path' });
+    return;
+  }
+
+  const { cxPhone, pmPhone } = req.body;
+  const envPath = join(resolved, '.env.dev');
+  let newContent = '';
+
+  if (existsSync(envPath)) {
+    let content = readFileSync(envPath, 'utf-8');
+    
+    // Update or append CX_TEST_PHONE
+    if (content.match(/^CX_TEST_PHONE=.*$/m)) {
+      content = content.replace(/^CX_TEST_PHONE=.*$/m, `CX_TEST_PHONE=${cxPhone}`);
+    } else {
+      content += `\nCX_TEST_PHONE=${cxPhone}`;
+    }
+
+    // Update or append PM_TEST_PHONE
+    if (content.match(/^PM_TEST_PHONE=.*$/m)) {
+      content = content.replace(/^PM_TEST_PHONE=.*$/m, `PM_TEST_PHONE=${pmPhone}`);
+    } else {
+      content += `\nPM_TEST_PHONE=${pmPhone}`;
+    }
+    newContent = content.trim() + '\n';
+  } else {
+    newContent = `CX_TEST_PHONE=${cxPhone}\nPM_TEST_PHONE=${pmPhone}\n`;
+  }
+
+  writeFileSync(envPath, newContent, 'utf-8');
+  res.json({ success: true });
 });
 
 // ─── STATIC /api/framework/report ───────────────────────────────────────────
@@ -234,7 +297,29 @@ router.post('/file', (req, res) => {
 });
 
 // ─── DELETE /api/framework/item ────────────────────────────────────────────
-// Delete a file or folder
+// ─── DELETE /api/framework/auth ──────────────────────────────────────────────
+// Clear the playwright/.auth directory
+router.delete('/auth', (req, res) => {
+  const { frameworkPath } = req.body;
+  const resolved = resolveFrameworkPath(frameworkPath);
+  
+  if (!resolved) {
+    res.status(400).json({ error: 'Invalid framework path' });
+    return;
+  }
+
+  const authPath = join(resolved, 'playwright', '.auth');
+  try {
+    if (existsSync(authPath)) {
+      rmSync(authPath, { recursive: true, force: true });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DELETE /api/framework/item ────────────────────────────────────────────
 router.delete('/item', (req, res) => {
   const { frameworkPath, itemPath } = req.body;
   const resolved = resolveFrameworkPath(frameworkPath);
@@ -303,12 +388,14 @@ router.put('/rename', (req, res) => {
 // ─── GET /api/framework/run ───────────────────────────────────────────────
 // Runs npm test (or a specific script) in the framework directory, streaming output
 router.get('/run', (req, res) => {
-  const { path: frameworkPath, script, module: moduleName, modulePath, headed } = req.query as {
+  const { path: frameworkPath, script, module: moduleName, modulePath, headed, env, workspace } = req.query as {
     path: string;
     script?: 'all' | 'setup' | 'module' | 'tag';
     module?: string;
     modulePath?: string;
     headed?: string;
+    env?: string;
+    workspace?: string;
   };
 
   const resolved = resolveFrameworkPath(frameworkPath);
@@ -322,7 +409,21 @@ router.get('/run', (req, res) => {
   let cmdArgs = ['node_modules/@playwright/test/cli.js', 'test'];
 
   if (script === 'setup') {
-    cmdArgs.push('--project=setup');
+    if (workspace === 'cx') {
+      cmdArgs.push('--project=setup-cx');
+    } else if (workspace === 'pm') {
+      cmdArgs.push('--project=setup-pm');
+    } else {
+      cmdArgs.push('--project=setup-cx');
+      cmdArgs.push('--project=setup-pm');
+    }
+  } else if (script === 'all' && workspace === 'cx') {
+    cmdArgs.push('--project=cx-tests');
+  } else if (script === 'all' && workspace === 'pm') {
+    cmdArgs.push('--project=pm-tests');
+  } else if (script === 'all' && workspace === 'all') {
+    // Force 2 workers locally so CX and PM run perfectly in parallel!
+    cmdArgs.push('--workers=2');
   } else if (script === 'module' && (moduleName || modulePath)) {
     // Playwright uses the CLI argument to match against files within its testDir (which is usually ./tests)
     // If we pass 'tests/modules/test.spec.ts', it might resolve to 'tests/tests/modules/test.spec.ts'.
@@ -330,20 +431,19 @@ router.get('/run', (req, res) => {
     
     let filterPattern = moduleName;
     if (modulePath) {
-      if (modulePath.startsWith('tests/')) {
-        filterPattern = modulePath.substring(6);
-      } else {
-        filterPattern = modulePath;
-      }
-      // On Windows, the absolute path has backslashes, so a forward slash regex might fail.
-      // Replace forward slashes with the OS-specific separator
-      if (process.platform === 'win32') {
-        filterPattern = filterPattern.replace(/\//g, '\\\\');
-      }
+      // CRITICAL: Playwright's Regex matching is notoriously brittle with absolute paths 
+      // and path separators on Windows (backslash vs forward slash escaping).
+      // The most robust way to filter is to simply pass the file or folder's basename!
+      // This perfectly matches the file without any path separator ambiguity.
+      filterPattern = basename(modulePath);
     }
     
     cmdArgs.push(filterPattern as string);
   } else if (script === 'tag' && moduleName) {
+    if (workspace === 'cx') cmdArgs.push('--project=cx-tests');
+    else if (workspace === 'pm') cmdArgs.push('--project=pm-tests');
+    else if (workspace === 'all') cmdArgs.push('--workers=2');
+    
     cmdArgs.push('--grep', moduleName);
   }
 
@@ -368,7 +468,7 @@ router.get('/run', (req, res) => {
   const child = spawn(cmd, cmdArgs, {
     cwd: resolved,
     shell: false,
-    env: { ...process.env, FORCE_COLOR: '0' },
+    env: { ...process.env, FORCE_COLOR: '0', TEST_ENV: env || 'dev' },
   });
 
   activeProcess = child;

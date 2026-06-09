@@ -39,8 +39,16 @@ function generateStepCode(step: TestStep): string {
   const val = escapeSingleQuotes(value);
 
   switch (type) {
-    case 'navigate':
-      return `await page.goto('${val || sel}');`;
+    case 'navigate': {
+      let dest = val || sel;
+      if (dest.startsWith('http')) {
+        try {
+          const urlObj = new URL(dest);
+          dest = urlObj.pathname + urlObj.search;
+        } catch (e) {}
+      }
+      return `await page.goto('${dest}');`;
+    }
 
     case 'click':
       return `await ${resolveSelector(sel)}.click();`;
@@ -49,6 +57,9 @@ function generateStepCode(step: TestStep): string {
       return `await ${resolveSelector(sel)}.dblclick();`;
 
     case 'fill':
+      if (step.delay !== undefined && step.delay > 0) {
+        return `await ${resolveSelector(sel)}.pressSequentially('${val}', { delay: ${step.delay} });`;
+      }
       return `await ${resolveSelector(sel)}.fill('${val}');`;
 
     case 'select':
