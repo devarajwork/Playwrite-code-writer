@@ -112,6 +112,16 @@ export async function getFrameworkStatus(frameworkPath) {
   return response.json();
 }
 
+export async function getFrameworkAssets(frameworkPath) {
+  const params = new URLSearchParams({ path: frameworkPath });
+  const response = await fetch(`${API_BASE}/framework/assets?${params.toString()}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to get assets');
+  }
+  return response.json();
+}
+
 export async function getFrameworkScripts(frameworkPath) {
   const params = new URLSearchParams({ path: frameworkPath });
   const response = await fetch(`${API_BASE}/framework/scripts?${params.toString()}`);

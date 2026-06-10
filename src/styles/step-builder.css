@@ -172,3 +172,116 @@
   margin-top: var(--space-1);
   padding-left: calc(24px + var(--space-3) + 12px + var(--space-3));
 }
+
+/* Disabled Step Card Styling */
+.step-card--disabled {
+  opacity: 0.45 !important;
+  filter: grayscale(45%) !important;
+  border-style: dashed !important;
+  border-color: var(--border-subtle) !important;
+  background: rgba(30, 30, 46, 0.25) !important;
+}
+
+.step-card--disabled:hover {
+  opacity: 0.75 !important;
+}
+
+.step-card--disabled .step-card__value {
+  background: rgba(0, 0, 0, 0.1) !important;
+  color: var(--text-muted) !important;
+}
+
+/* Small toggle switch inside step card */
+.step-card__toggle-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  margin-right: var(--space-1);
+}
+
+.step-card__toggle-wrapper input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.step-card__toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.1);
+  transition: 0.2s;
+  border-radius: 16px;
+  border: 1px solid var(--border-default);
+}
+
+.step-card__toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 10px;
+  width: 10px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-muted);
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.step-card__toggle-wrapper input:checked + .step-card__toggle-slider {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.step-card__toggle-wrapper input:checked + .step-card__toggle-slider:before {
+  transform: translateX(12px);
+  background-color: white;
+}
+
+/* Step card action buttons styling */
+.btn--insert-step,
+.btn--edit-step,
+.btn--delete-step {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 26px !important;
+  width: 26px !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  background: transparent;
+}
+
+.btn--insert-step {
+  background: var(--accent-primary) !important;
+  color: #ffffff !important;
+}
+
+.btn--insert-step:hover {
+  background: var(--accent-secondary) !important;
+  transform: scale(1.08);
+}
+
+.btn--edit-step {
+  color: var(--text-muted) !important;
+}
+
+.btn--edit-step:hover {
+  background: var(--bg-surface-hover) !important;
+  color: var(--accent-primary) !important;
+  transform: scale(1.08);
+}
+
+.btn--delete-step {
+  color: var(--text-muted) !important;
+}
+
+.btn--delete-step:hover {
+  background: var(--color-danger-bg) !important;
+  color: var(--color-danger) !important;
+  transform: scale(1.08);
+}

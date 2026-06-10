@@ -71,6 +71,9 @@ function generateStepCode(step: TestStep): string {
     case 'uncheck':
       return `await ${resolveSelector(sel)}.uncheck();`;
 
+    case 'upload':
+      return `await ${resolveSelector(sel)}.setInputFiles('${val}');`;
+
     case 'hover':
       return `await ${resolveSelector(sel)}.hover();`;
 

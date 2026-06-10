@@ -171,6 +171,9 @@ router.get('/', async (req, res) => {
     // Set cookie for target origin so subsequent asset requests know where to go
     const targetOrigin = new URL(actualUrl).origin;
     res.setHeader('Set-Cookie', `proxy_target_origin=${encodeURIComponent(targetOrigin)}; Path=/; SameSite=Lax`);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     // Set base tag to our local proxy endpoint so relative scripts and styles resolve to localhost
     const baseTag = '<base href="/api/proxy/">';
@@ -287,7 +290,7 @@ router.get('/', async (req, res) => {
             const ariaLabel = el.getAttribute('aria-label') || '';
             const dataTestId = el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-cy') || '';
             const role = el.getAttribute('role') || '';
-            const type = el.getAttribute('type') || '';
+            const type = el.type || el.getAttribute('type') || '';
 
             // Construct selectors matching codeGenerator logic
             const selectors = {
@@ -345,7 +348,7 @@ router.get('/', async (req, res) => {
             selectors.xpath = "page.locator('" + xpath + "')";
 
             const bestSelector = getBestSelector(selectors);
-            return { tagName, id, bestSelector, text, placeholder, selectors };
+            return { tagName, id, bestSelector, text, placeholder, selectors, type };
           }
 
           // Inspect mouse movements
@@ -408,22 +411,24 @@ router.get('/', async (req, res) => {
           }, true);
 
           // Catch input/select updates on blur/change
-          document.addEventListener('blur', function(e) {
-            const el = e.target;
-            if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT')) return;
+          ['blur', 'change'].forEach(function(eventType) {
+            document.addEventListener(eventType, function(e) {
+              const el = e.target;
+              if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT')) return;
 
-            const value = el.value;
-            if (!value) return;
+              const value = el.value;
+              if (!value && el.type !== 'file') return;
 
-            const elementData = extractElementData(el);
-            notifyParent({
-              type: 'INPUT_CHANGED',
-              element: {
-                ...elementData,
-                value: value
-              }
-            });
-          }, true);
+              const elementData = extractElementData(el);
+              notifyParent({
+                type: 'INPUT_CHANGED',
+                element: {
+                  ...elementData,
+                  value: value
+                }
+              });
+            }, true);
+          });
 
           // Periodically track URL changes
           let lastUrl = window.location.href;

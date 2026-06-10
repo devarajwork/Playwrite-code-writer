@@ -125,7 +125,16 @@ router.post('/', async (req, res) => {
 
           case 'click': {
             const loc = resolveLocator(page, sel);
-            await loc.click({ timeout: 10000 });
+            let clickArgs: any = { timeout: 10000 };
+            if (val) {
+              try {
+                const parsed = JSON.parse(val);
+                if (parsed && typeof parsed === 'object') {
+                  clickArgs = { ...clickArgs, ...parsed };
+                }
+              } catch(e) {}
+            }
+            await loc.click(clickArgs);
             break;
           }
 
@@ -160,6 +169,17 @@ router.post('/', async (req, res) => {
           case 'uncheck': {
             const loc = resolveLocator(page, sel);
             await loc.uncheck({ timeout: 10000 });
+            break;
+          }
+
+          case 'upload': {
+            const loc = resolveLocator(page, sel);
+            const { resolve, isAbsolute } = await import('path');
+            let uploadPath = val;
+            if (!isAbsolute(val)) {
+              uploadPath = resolve(frameworkPath || process.cwd(), val);
+            }
+            await loc.setInputFiles(uploadPath, { timeout: 10000 });
             break;
           }
 

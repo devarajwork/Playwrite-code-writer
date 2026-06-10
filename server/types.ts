@@ -7,6 +7,8 @@ export interface TestStep {
   value: string;
   description: string;
   order: number;
+  delay?: number;
+  waitUntil?: string;
 }
 
 export type StepType =
@@ -16,6 +18,7 @@ export type StepType =
   | 'select'
   | 'check'
   | 'uncheck'
+  | 'upload'
   | 'hover'
   | 'waitForSelector'
   | 'assertVisible'

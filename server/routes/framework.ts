@@ -43,6 +43,47 @@ router.get('/status', (req, res) => {
   });
 });
 
+// ─── GET /api/framework/assets ─────────────────────────────────────────────
+router.get('/assets', (req, res) => {
+  const rawPath = (req.query.path as string) || '';
+  const resolved = resolveFrameworkPath(rawPath);
+
+  if (!resolved) {
+    res.json({ files: [] });
+    return;
+  }
+
+  let files: string[] = [];
+  const checkDirs = [join(resolved, 'assets'), join(resolved, 'tests', 'assets')];
+  
+  const walkSync = (dir: string, filelist: string[] = []) => {
+    try {
+      if (!existsSync(dir)) return filelist;
+      const dirFiles = readdirSync(dir);
+      for (const file of dirFiles) {
+        const filepath = join(dir, file);
+        if (statSync(filepath).isDirectory()) {
+          filelist = walkSync(filepath, filelist);
+        } else {
+          // Keep path relative to framework root
+          filelist.push(filepath.substring(resolved.length + 1).replace(/\\/g, '/'));
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return filelist;
+  };
+
+  for (const dir of checkDirs) {
+    if (existsSync(dir)) {
+      files = walkSync(dir, files);
+    }
+  }
+
+  res.json({ files });
+});
+
 // ─── ENV /api/framework/env ─────────────────────────────────────────────
 router.get('/env', (req, res) => {
   const rawPath = (req.query.path as string) || '';

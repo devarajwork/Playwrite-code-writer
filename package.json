@@ -1,11 +1,12 @@
 {
   "name": "playwrite-script-builder",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Web-based Playwright Testing Tool — Visual test builder with element scanner and code generator",
   "main": "electron-main.js",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:desktop": "concurrently \"npm run dev:server\" \"npm run dev:client\" \"electron . --dev\"",
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build",

@@ -99,16 +99,24 @@ export function highlightCode(code) {
  */
 export function getBestSelector(selectors) {
   if (selectors.byTestId) return selectors.byTestId;
-  if (selectors.byId) return selectors.byId;
   if (selectors.byLabel) return selectors.byLabel;
   if (selectors.byPlaceholder) return selectors.byPlaceholder;
   if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
+  
+  // Prioritize chained parent-scoped selectors (e.g. page.getByRole(...).getByRole(...))
+  if (selectors.css && selectors.css.includes(').')) {
+    if (selectors.css.startsWith('page.')) return selectors.css;
+    return `page.locator('${selectors.css}')`;
+  }
+  
+  if (selectors.byId) return selectors.byId;
   if (selectors.byText) return selectors.byText;
-  if (selectors.byRole) return selectors.byRole;
+  
   if (selectors.css) {
     if (selectors.css.startsWith('page.')) return selectors.css;
     return `page.locator('${selectors.css}')`;
   }
+  if (selectors.byRole) return selectors.byRole; // Generic role like page.getByRole('button')
   if (selectors.xpath) {
     if (selectors.xpath.startsWith('page.')) return selectors.xpath;
     return `page.locator('${selectors.xpath}')`;
@@ -127,6 +135,7 @@ export const STEP_TYPE_INFO = {
   select:          { emoji: '📋', label: 'Select',           needsSelector: true,  needsValue: true,  valuePlaceholder: 'Option value...' },
   check:           { emoji: '☑️', label: 'Check',            needsSelector: true,  needsValue: false, valuePlaceholder: '' },
   uncheck:         { emoji: '⬜', label: 'Uncheck',          needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  upload:          { emoji: '📁', label: 'Upload File',      needsSelector: true,  needsValue: true,  valuePlaceholder: 'path/to/file.pdf' },
   hover:           { emoji: '🖱️', label: 'Hover',            needsSelector: true,  needsValue: false, valuePlaceholder: '' },
   press:           { emoji: '⌨️', label: 'Press Key',        needsSelector: true,  needsValue: true,  valuePlaceholder: 'Enter, Tab, Escape...' },
   scrollTo:        { emoji: '📜', label: 'Scroll To',        needsSelector: true,  needsValue: false, valuePlaceholder: '' },
@@ -178,8 +187,14 @@ export function parsePlaywrightScript(code) {
   let currentDescription = '';
   
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    let line = lines[i].trim();
     if (!line) continue;
+    
+    let disabled = false;
+    if (line.startsWith('// [Disabled] ')) {
+      disabled = true;
+      line = line.substring(14).trim();
+    }
     
     if (line.startsWith('//')) {
       currentDescription = line.substring(2).trim();
@@ -234,12 +249,22 @@ export function parsePlaywrightScript(code) {
     else if (line.includes('.uncheck(')) {
       type = 'uncheck';
       selector = extractLocator(line);
-    }
-    else if (line.includes('.hover(')) {
+    } else if (line.includes('.hover(')) {
       type = 'hover';
-      selector = extractLocator(line);
-    }
-    else if (line.includes('.press(')) {
+      const m = line.match(/await\s+(.*?)\.hover\(\)/);
+      if (m) {
+        selector = m[1];
+      } else {
+        selector = extractLocator(line);
+      }
+    } else if (line.includes('.setInputFiles(')) {
+      type = 'upload';
+      const m = line.match(/await\s+(.*?)\.setInputFiles\(['"`](.*?)['"`]\)/);
+      if (m) {
+        selector = m[1];
+        value = m[2];
+      }
+    } else if (line.includes('.press(')) {
       type = 'press';
       selector = extractLocator(line);
       const m = line.match(/\.press\(['"`](.*?)['"`]\)/);
@@ -303,6 +328,7 @@ export function parsePlaywrightScript(code) {
         waitUntil,
         delay,
         description: currentDescription,
+        disabled,
         order: steps.length
       });
       currentDescription = '';
@@ -313,7 +339,7 @@ export function parsePlaywrightScript(code) {
 
 function extractLocator(line) {
   // Use greedy .* up to the action method call to handle nested parentheses
-  const m = line.match(/(page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))(?=\.(?:click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|scrollIntoViewIfNeeded))/);
+  const m = line.match(/(page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))(?=\.(?:click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|scrollIntoViewIfNeeded|waitFor|setInputFiles))/);
   return m ? m[1] : '';
 }
 

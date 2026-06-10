@@ -1,13 +1,17 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { fork } from 'child_process';
 import net from 'net';
+import { session } from 'electron';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Disable site isolation to allow cross-origin iframe DOM access
+app.commandLine.appendSwitch('disable-site-isolation-trials');
 
 let mainWindow;
 let serverProcess;
@@ -45,6 +49,10 @@ function waitForServer(port, timeout, cb) {
   }, 250);
 }
 
+// No IPC handlers needed anymore for God-Mode Iframe
+
+const isDev = process.argv.includes('--dev');
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -53,7 +61,9 @@ function createWindow() {
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      webSecurity: false,
+      webviewTag: true
     }
   });
 
@@ -61,20 +71,19 @@ function createWindow() {
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
-        width: 1200,
-        height: 800,
+        width: 1600,
+        height: 900,
         title: "Visual Inspector",
         icon: path.join(__dirname, 'icon.png'),
         webPreferences: {
           nodeIntegration: false,
-          contextIsolation: true
+          contextIsolation: true,
+          webSecurity: false,
+          webviewTag: true
         }
       }
     };
   });
-
-  // Load the Express server
-  mainWindow.loadURL('http://localhost:3001');
 
   mainWindow.on('closed', function () {
     mainWindow = null;
@@ -82,41 +91,81 @@ function createWindow() {
 }
 
 app.on('ready', () => {
-  // Handle zoom shortcuts for all windows
+  // Strip iframe-blocking headers natively without modifying other headers
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...details.responseHeaders };
+    
+    for (const header in responseHeaders) {
+      const lower = header.toLowerCase();
+      if (lower === 'x-frame-options' || lower === 'content-security-policy') {
+        delete responseHeaders[header];
+      }
+    }
+    
+    callback({
+      cancel: false,
+      responseHeaders
+    });
+  });
+
+  // Create window synchronously so Electron doesn't exit due to 0 windows open
+  createWindow();
+
+  // Handle zoom shortcuts and DevTools for all windows
   app.on('web-contents-created', (event, contents) => {
+    // Automatically opening DevTools has been disabled per user request.
     contents.on('before-input-event', (event, input) => {
       if ((input.control || input.meta) && input.type === 'keyDown') {
-        if (input.key === '=' || input.key === '+') {
-          contents.setZoomLevel(contents.getZoomLevel() + 0.5);
+        if (input.key === '=' || input.key === '+' || input.code === 'Equal' || input.code === 'NumpadAdd') {
+          try {
+            const currentZoom = contents.getZoomFactor();
+            contents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
+          } catch (err) {
+            console.error('Failed to zoom in:', err);
+          }
           event.preventDefault();
-        } else if (input.key === '-') {
-          contents.setZoomLevel(contents.getZoomLevel() - 0.5);
+        } else if (input.key === '-' || input.code === 'Minus' || input.code === 'NumpadSubtract') {
+          try {
+            const currentZoom = contents.getZoomFactor();
+            contents.setZoomFactor(Math.max(currentZoom - 0.1, 0.5));
+          } catch (err) {
+            console.error('Failed to zoom out:', err);
+          }
           event.preventDefault();
-        } else if (input.key === '0') {
-          contents.setZoomLevel(0);
+        } else if (input.key === '0' || input.code === 'Digit0' || input.code === 'Numpad0') {
+          try {
+            contents.setZoomFactor(1.0);
+          } catch (err) {
+            console.error('Failed to reset zoom:', err);
+          }
           event.preventDefault();
         }
       }
     });
   });
 
-  // 1. Check for updates on startup
-  autoUpdater.checkForUpdatesAndNotify();
+  if (!isDev) {
+    // 1. Check for updates on startup
+    autoUpdater.checkForUpdatesAndNotify();
 
-  // 2. Start the Express server
-  const serverPath = path.join(__dirname, 'dist', 'server', 'index.js');
-  // Pass arbitrary environment variables or disable basic auth for the local desktop app if desired
-  serverProcess = fork(serverPath, [], { 
-    env: { ...process.env, PORT: '3001' },
-    stdio: 'inherit'
-  });
+    // 2. Start the Express server
+    const serverPath = path.join(__dirname, 'dist', 'server', 'index.js');
+    serverProcess = fork(serverPath, [], { 
+      env: { ...process.env, PORT: '3001' },
+      stdio: 'inherit'
+    });
+  }
   
   // 3. Wait for the server to spin up, then open window
-  waitForServer(3001, 10000, (ready) => {
+  const targetPort = isDev ? 5173 : 3001;
+  waitForServer(targetPort, 15000, (ready) => {
     if (ready) {
-      createWindow();
+      const targetUrl = isDev ? 'http://127.0.0.1:5173' : 'http://127.0.0.1:3001';
+      if (mainWindow) {
+        mainWindow.loadURL(targetUrl);
+      }
     } else {
-      dialog.showErrorBox('Server Error', 'The local API server failed to start on port 3001.');
+      dialog.showErrorBox('Server Error', `The local API server failed to start on port ${targetPort}.`);
       app.quit();
     }
   });

@@ -64,7 +64,7 @@
           <input type="text" id="url-input" class="toolbar__input toolbar__input--url" placeholder="/login" value="/" />
           <button id="scan-btn" class="btn btn--primary btn--scan" title="Open Interactive Inspector">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            Open Visual Inspector
+            Visual Inspector
           </button>
         </div>
       </div>
@@ -75,6 +75,10 @@
       <button id="settings-btn" class="btn btn--ghost" title="Settings" style="display: inline-flex; align-items: center; gap: 6px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Settings
+      </button>
+      <button id="credentials-btn" class="btn btn--ghost" title="Credentials" style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a5 5 0 0 1 5 5v3h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2V6a5 5 0 0 1 5-5z"/></svg>
+        Credentials
       </button>
     </div>
   </header>
@@ -242,6 +246,7 @@
               <option value="select">📋 Select Option</option>
               <option value="check">☑️ Check</option>
               <option value="uncheck">⬜ Uncheck</option>
+              <option value="upload">📁 Upload File</option>
               <option value="hover">🖱️ Hover</option>
               <option value="press">⌨️ Press Key</option>
               <option value="scrollTo">📜 Scroll To</option>
@@ -272,7 +277,8 @@
 
         <div class="form-group" id="value-group">
           <label for="step-value" class="form-label">Value</label>
-          <input type="text" id="step-value" class="form-input" placeholder="Enter value..." />
+          <input type="text" id="step-value" class="form-input" placeholder="Enter value..." list="asset-files-list" />
+          <datalist id="asset-files-list"></datalist>
         </div>
 
         <div class="form-group hidden" id="delay-group">
@@ -485,16 +491,16 @@
         <button class="modal__close" id="settings-close">&times;</button>
       </div>
       <div class="modal__body">
-          <div class="form-group" style="margin-bottom:var(--space-4);">
+          <div class="form-group" id="framework-path-group" style="margin-bottom:var(--space-4);">
             <label for="framework-path-input" class="form-label">🎭 Framework Project Path</label>
             <div style="display:flex; gap:var(--space-2);">
-              <input type="text" id="framework-path-input" class="form-input" style="flex:1" placeholder="C:\Projects\my-tests" />
+              <input type="text" id="framework-path-input" class="form-input" style="flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" placeholder="C:\Projects\my-tests" />
               <button id="framework-path-browse-btn" class="btn btn--secondary">Browse</button>
             </div>
             <span class="form-hint">Absolute path to your Playwright folder.</span>
           </div>
 
-          <div class="fw-section" style="margin-bottom: 0;">
+          <div class="fw-section" id="credentials-section" style="margin-bottom: 0; display:none;">
             <div class="fw-section__title">🔑 Local Test Credentials</div>
             <span class="form-hint" style="display:block; margin-bottom:var(--space-3); margin-top:-4px;">These are saved directly to your local <code style="background:var(--bg-panel-alt);padding:2px 4px;border-radius:4px;">.env.dev</code> file and will be used when you run "Setup Only".</span>
             

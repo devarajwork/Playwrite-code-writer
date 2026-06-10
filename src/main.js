@@ -2,7 +2,7 @@
 // Playwright Test Builder — Main Application
 // ============================================
 
-import { scanUrl, generateCode, saveTest, runTestSteps, browseSaveLocation, listSavedTests, loadSavedTest, getFrameworkStatus, getFrameworkScripts, runFramework } from './utils/api.js';
+import { scanUrl, generateCode, saveTest, runTestSteps, browseSaveLocation, listSavedTests, loadSavedTest, getFrameworkStatus, getFrameworkScripts, runFramework, getFrameworkAssets } from './utils/api.js';
 import {
   generateId,
   showToast,
@@ -113,6 +113,8 @@ const dom = {
   runnerScreenshotImg: document.getElementById('runner-screenshot-img'),
   // Settings Modal
   settingsBtn: document.getElementById('settings-btn'),
+  credentialsBtn: document.getElementById('credentials-btn'),
+  credentialsSection: document.getElementById('credentials-section'),
   settingsModal: document.getElementById('settings-modal'),
   settingsClose: document.getElementById('settings-close'),
   settingsCancel: document.getElementById('settings-cancel'),
@@ -261,6 +263,9 @@ function bindEvents() {
 
   // Settings Modal
   dom.settingsBtn.addEventListener('click', openSettingsModal);
+  if (dom.credentialsBtn) {
+    dom.credentialsBtn.addEventListener('click', openCredentialsModal);
+  }
   dom.settingsClose.addEventListener('click', closeSettingsModal);
   dom.settingsCancel.addEventListener('click', closeSettingsModal);
   dom.settingsSave.addEventListener('click', handleSaveSettings);
@@ -475,10 +480,15 @@ function bindEvents() {
         renderSteps();
         autoGenerate();
       } else if (e.data.type === 'ELEMENT_CLICKED' || e.data.type === 'INPUT_CHANGED') {
+        if (e.data.type === 'ELEMENT_CLICKED' && e.data.element.type && e.data.element.type.toLowerCase() === 'file') {
+          // Ignore clicks on file inputs, wait for the INPUT_CHANGED event instead
+          return;
+        }
+        
         // Only trigger auto-add if the message comes from the embedded iframe or older behavior, 
         // but now the inspector tab handles these and sends ADD_STEP_MANUAL instead.
         // We'll keep this just in case they are still generated directly.
-        const { bestSelector, tagName, value } = e.data.element;
+        let { bestSelector, tagName, value } = e.data.element;
         const typeMap = {
           button: 'click', input: 'fill', select: 'select',
           textarea: 'fill', a: 'click', h1: 'assertText',
@@ -488,14 +498,21 @@ function bindEvents() {
         let type = typeMap[tagName] || 'click';
         if (value && type === 'click') type = 'fill';
         
+        let processedValue = value || '';
+        if (e.data.element.type && e.data.element.type.toLowerCase() === 'file') {
+          type = 'upload';
+          bestSelector = "page.locator('input[type=\"file\"]')";
+          if (processedValue) processedValue = processedValue.replace(/C:\\fakepath\\/i, 'assets/');
+        }
+        
         const info = STEP_TYPE_INFO[type] || { emoji: '❓', label: type };
         
         const step = {
           id: generateId(),
           type,
           selector: bestSelector,
-          value: value || '',
-          description: value ? `Fill "${value}" into ${tagName}` : `Click on ${tagName}`,
+          value: processedValue,
+          description: processedValue ? (type === 'upload' ? `Upload file ${processedValue}` : `Fill "${processedValue}" into ${tagName}`) : `Click on ${tagName}`,
           order: state.steps.length,
         };
         
@@ -539,8 +556,27 @@ async function handleScan() {
   
   let fullUrl = path.startsWith('http') ? path : `${envUrl}${path.startsWith('/') ? path : '/' + path}`;
 
-  // Open the visual inspector in a new window/tab
-  window.open(`/inspector.html?url=${encodeURIComponent(fullUrl)}`, '_blank', 'width=1200,height=800');
+  // If the URL accidentally contains the old proxy prefix, strip it
+  if (fullUrl.includes('/api/proxy?url=')) {
+    const match = fullUrl.match(/[?&]url=([^&]+)/);
+    if (match) {
+      fullUrl = decodeURIComponent(match[1]);
+      dom.urlInput.value = fullUrl; // Update UI to reflect the clean URL
+    }
+  }
+  // Open the visual inspector in a new window/tab using an alternative origin (localhost vs 127.0.0.1)
+  // to prevent Chromium from syncing zoom levels between the two windows.
+  const origin = window.location.origin;
+  let altOrigin = origin;
+  if (origin.includes('127.0.0.1')) {
+    altOrigin = origin.replace('127.0.0.1', 'localhost');
+  } else if (origin.includes('localhost')) {
+    altOrigin = origin.replace('localhost', '127.0.0.1');
+  }
+
+  const fwPath = state.settings.frameworkPath || '';
+  const inspectorUrl = `${altOrigin}/inspector.html?v=2&url=${encodeURIComponent(fullUrl)}&fwPath=${encodeURIComponent(fwPath)}`;
+  window.open(inspectorUrl, '_blank', 'width=1200,height=800');
 
   let stepValue = path;
   if (path.startsWith('http')) {
@@ -976,7 +1012,7 @@ function renderSteps() {
   state.steps.forEach((step, index) => {
     const info = STEP_TYPE_INFO[step.type] || { emoji: '❓', label: step.type };
     const card = document.createElement('div');
-    card.className = 'step-card';
+    card.className = `step-card${step.disabled ? ' step-card--disabled' : ''}`;
     card.draggable = true;
     card.dataset.index = index;
 
@@ -989,10 +1025,20 @@ function renderSteps() {
         </div>
         <input type="number" class="step-card__order-input" data-id="${step.id}" value="${index + 1}" min="1" max="${state.steps.length}" style="width: 46px; text-align: center; border: 1px solid var(--border-default); background: var(--bg-surface); color: var(--text-primary); border-radius: 4px; padding: 2px; font-size: var(--text-sm);" title="Edit order number" />
         <span class="step-card__type step-card__type--${step.type}">${info.emoji} ${info.label}</span>
-        <div class="step-card__actions">
-          <button class="btn btn--danger-small btn--insert-step" data-index="${index}" title="Insert step below" style="background:var(--accent-primary);">➕</button>
-          <button class="btn btn--danger-small btn--edit-step" data-id="${step.id}" title="Edit step">✏️</button>
-          <button class="btn btn--danger-small btn--delete-step" data-id="${step.id}" title="Delete step">🗑️</button>
+        <div class="step-card__actions" style="display: flex; align-items: center;">
+          <label class="step-card__toggle-wrapper" title="${step.disabled ? 'Enable step' : 'Disable step'}" style="margin-top: 3px;">
+            <input type="checkbox" class="btn--toggle-disable" data-id="${step.id}" ${step.disabled ? '' : 'checked'}>
+            <span class="step-card__toggle-slider"></span>
+          </label>
+          <button class="btn btn--insert-step" data-index="${index}" title="Insert step below">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </button>
+          <button class="btn btn--edit-step" data-id="${step.id}" title="Edit step">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+          </button>
+          <button class="btn btn--delete-step" data-id="${step.id}" title="Delete step">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
         </div>
       </div>
     `;
@@ -1082,6 +1128,18 @@ function renderSteps() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       deleteStep(btn.dataset.id);
+    });
+  });
+
+  dom.stepsContainer.querySelectorAll('.btn--toggle-disable').forEach((toggle) => {
+    toggle.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const step = state.steps.find((s) => s.id === toggle.dataset.id);
+      if (step) {
+        step.disabled = !toggle.checked;
+        renderSteps();
+        autoGenerate();
+      }
     });
   });
   
@@ -1204,7 +1262,11 @@ function clientSideGenerate(testName, steps) {
     if (step.description) {
       lines.push(`  // ${step.description}`);
     }
-    lines.push(`  ${generateStepLine(step)}`);
+    if (step.disabled) {
+      lines.push(`  // [Disabled] ${generateStepLine(step)}`);
+    } else {
+      lines.push(`  ${generateStepLine(step)}`);
+    }
     lines.push('');
   }
 
@@ -1224,8 +1286,20 @@ function generateStepLine(step) {
   switch (type) {
     case 'navigate':
       return `await page.goto(${val ? safeVal : safeSel}${step.waitUntil ? `, { waitUntil: '${step.waitUntil}' }` : ''});`;
-    case 'click':
-      return `await ${selectorExpr}.click();`;
+    case 'click': {
+      let clickArgs = '';
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (parsed && typeof parsed === 'object') {
+            clickArgs = JSON.stringify(parsed);
+            // Clean up stringify output to match typical formatting
+            clickArgs = clickArgs.replace(/"([^"]+)":/g, '$1:').replace(/"/g, "'");
+          }
+        } catch (e) {}
+      }
+      return `await ${selectorExpr}.click(${clickArgs});`;
+    }
     case 'dblclick':
       return `await ${selectorExpr}.dblclick();`;
     case 'fill':
@@ -1239,6 +1313,8 @@ function generateStepLine(step) {
       return `await ${selectorExpr}.check();`;
     case 'uncheck':
       return `await ${selectorExpr}.uncheck();`;
+    case 'upload':
+      return `await ${selectorExpr}.setInputFiles(${safeVal});`;
     case 'hover':
       return `await ${selectorExpr}.hover();`;
     case 'press':
@@ -1389,8 +1465,32 @@ function openSettingsModal() {
   }
 }
 
+function openCredentialsModal() {
+  openSettingsModal();
+  // Hide the framework path section
+  const fwPathGroup = document.getElementById('framework-path-group');
+  if (fwPathGroup) fwPathGroup.style.display = 'none';
+  // Change modal title to Credentials
+  const titleEl = dom.settingsModal.querySelector('.modal__title');
+  if (titleEl) titleEl.textContent = '🔑 Credentials';
+  // Reveal the credentials section
+  if (dom.credentialsSection) {
+    dom.credentialsSection.style.display = 'block';
+  }
+}
+
 function closeSettingsModal() {
   dom.settingsModal.classList.add('hidden');
+  // Restore framework path section
+  const fwPathGroup = document.getElementById('framework-path-group');
+  if (fwPathGroup) fwPathGroup.style.display = '';
+  // Restore modal title
+  const titleEl = dom.settingsModal.querySelector('.modal__title');
+  if (titleEl) titleEl.textContent = '⚙️ Settings';
+  // Hide credentials section again when modal closes
+  if (dom.credentialsSection) {
+    dom.credentialsSection.style.display = 'none';
+  }
 }
 
 async function handleSaveSettings() {
@@ -1552,6 +1652,7 @@ async function handleRunExecution() {
   // Render initial steps list in pending/running states
   dom.runnerLogs.innerHTML = '';
   state.steps.forEach((step, idx) => {
+    if (step.disabled) return;
     const info = STEP_TYPE_INFO[step.type] || { emoji: '❓', label: step.type };
     const row = document.createElement('div');
     row.className = 'runner-step-row runner-step-row--pending';
@@ -1589,7 +1690,8 @@ async function handleRunExecution() {
       }
     }
 
-    const response = await runTestSteps(state.steps, envUrl, state.disableAuth, state.settings.frameworkPath, workspaceVal);
+    const activeSteps = state.steps.filter(s => !s.disabled);
+    const response = await runTestSteps(activeSteps, envUrl, state.disableAuth, state.settings.frameworkPath, workspaceVal);
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
@@ -1884,6 +1986,18 @@ async function checkFrameworkConnection() {
   try {
     const status = await getFrameworkStatus(path);
     state.fw.connected = status.connected;
+
+    if (status.connected) {
+      try {
+        const assetsObj = await getFrameworkAssets(path);
+        if (assetsObj.files && assetsObj.files.length > 0) {
+          const datalist = document.getElementById('asset-files-list');
+          if (datalist) {
+            datalist.innerHTML = assetsObj.files.map(f => `<option value="${escapeHtml(f)}">`).join('');
+          }
+        }
+      } catch (e) { console.error('Failed to load assets', e); }
+    }
 
     if (status.connected) {
       dom.fwStatusDot.style.background = 'var(--color-success)';
