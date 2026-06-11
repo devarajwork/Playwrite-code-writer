@@ -85,23 +85,39 @@ const INJECT_SCRIPT = `
 
   function getBestSelector(selectors) {
     if (selectors.byTestId) return selectors.byTestId;
-    if (selectors.byId) return selectors.byId;
+    if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
     if (selectors.byLabel) return selectors.byLabel;
     if (selectors.byPlaceholder) return selectors.byPlaceholder;
-    if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
     if (selectors.byText) return selectors.byText;
+    if (selectors.byId) return selectors.byId;
     if (selectors.byRole) return selectors.byRole;
     return selectors.css || '';
   }
 
   function extractElementData(el) {
     const tagName = el.tagName.toLowerCase();
-    const id = el.id || '';
+    
+    // Filter dynamic IDs (e.g. #headlessui-listbox-button-_r_11m_, #radix-123, generated hashes)
+    let id = el.id || '';
+    if (id && /headlessui|radix|mui|-[0-9]{4,}|^[a-f0-9]{8,}/i.test(id)) {
+      id = '';
+    }
+
     const name = el.getAttribute('name') || '';
+    
+    // Filter utility classes and complex Tailwind arbitrary values
     const className = el.className && typeof el.className === 'string'
-      ? el.className.split(' ').filter(c => c.length > 0 && !c.includes('pw-visual')).slice(0, 2).join(' ')
+      ? el.className.split(' ').filter(c => 
+          c.length > 0 && 
+          !c.includes('pw-visual') &&
+          !c.includes(':') && 
+          !c.includes('[') &&
+          !/^(flex|grid|block|absolute|relative|w-|h-|p-|m-|text-|bg-|border-)/.test(c)
+        ).slice(0, 2).join(' ')
       : '';
-    const text = (el.textContent || '').trim();
+
+    // Clean text matching
+    let text = (el.textContent || '').replace(/[\\n\\r\\t ]+/g, ' ').trim();
     const placeholder = el.getAttribute('placeholder') || '';
     const ariaLabel = el.getAttribute('aria-label') || '';
     const dataTestId = el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-cy') || '';
@@ -115,10 +131,18 @@ const INJECT_SCRIPT = `
       byRole: "",
       byLabel: ariaLabel ? "page.getByLabel('" + ariaLabel.replace(/'/g, "\\\\'") + "')" : "",
       byPlaceholder: placeholder ? "page.getByPlaceholder('" + placeholder.replace(/'/g, "\\\\'") + "')" : "",
-      byText: (text && text.length < 50) ? "page.getByText('" + text.replace(/'/g, "\\\\'") + "', { exact: true })" : "",
+      byText: "",
       css: "",
       xpath: ""
     };
+
+    if (text && text.length > 0) {
+      if (text.length > 30) {
+        selectors.byText = "page.getByText('" + text.substring(0, 30).replace(/'/g, "\\\\'") + "', { exact: false })";
+      } else {
+        selectors.byText = "page.getByText('" + text.replace(/'/g, "\\\\'") + "', { exact: true })";
+      }
+    }
 
     const implicitRoles = {
       button: 'button',
@@ -129,7 +153,7 @@ const INJECT_SCRIPT = `
     };
     const effectiveRole = role || implicitRoles[tagName];
     if (effectiveRole) {
-      const nameAttr = ariaLabel || text.substring(0, 30);
+      const nameAttr = ariaLabel || (text.length <= 30 ? text : text.substring(0, 30));
       if (nameAttr) {
         selectors.byRole = "page.getByRole('" + effectiveRole + "', { name: '" + nameAttr.replace(/'/g, "\\\\'") + "' })";
       } else {

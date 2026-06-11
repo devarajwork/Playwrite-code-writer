@@ -72,7 +72,7 @@ export function highlightCode(code) {
 
       // Methods after dots: .click(), .fill(), etc.
       highlighted = highlighted.replace(
-        /\.(goto|click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|waitFor|waitForSelector|screenshot|scrollIntoViewIfNeeded|toBeVisible|toContainText|toHaveValue|toHaveURL|getByRole|getByTestId|getByLabel|getByPlaceholder|getByText|locator|page)\b/g,
+        /\.(goto|click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|waitFor|waitForSelector|screenshot|scrollIntoViewIfNeeded|isVisible|toBeVisible|toContainText|toHaveValue|toHaveURL|getByRole|getByTestId|getByLabel|getByPlaceholder|getByText|locator|page)\b/g,
         '.<span class="prop">$1</span>'
       );
 
@@ -146,6 +146,7 @@ export const STEP_TYPE_INFO = {
   assertValue:     { emoji: '🔢', label: 'Assert Value',     needsSelector: true,  needsValue: true,  valuePlaceholder: 'Expected value...' },
   assertUrl:       { emoji: '🔗', label: 'Assert URL',       needsSelector: false, needsValue: true,  valuePlaceholder: 'Expected URL or pattern...' },
   screenshot:      { emoji: '📸', label: 'Screenshot',       needsSelector: false, needsValue: true,  valuePlaceholder: 'filename.png' },
+  ifElse:          { emoji: '🔀', label: 'If/Else',          needsSelector: true,  needsValue: true,  valuePlaceholder: 'Fallback selector (else branch)' },
 };
 
 /**
@@ -206,6 +207,128 @@ export function parsePlaywrightScript(code) {
     let value = '';
     let waitUntil = '';
     let delay = undefined;
+    let optional = false;
+    let ifElseAction = '';
+    let ifElseElseAction = '';
+    
+    // Detect try { ... } catch { } pattern for optional steps
+    if (line === 'try {') {
+      // Collect all lines in the try/catch block
+      let tryBody = '';
+      let catchBody = '';
+      let inCatch = false;
+      let braceDepth = 1;
+      i++;
+      while (i < lines.length && braceDepth > 0) {
+        const innerLine = lines[i].trim();
+        if (innerLine.includes('{')) braceDepth += (innerLine.match(/{/g) || []).length;
+        if (innerLine.includes('}')) braceDepth -= (innerLine.match(/}/g) || []).length;
+        if (braceDepth === 0) break;
+        if (innerLine.startsWith('} catch')) {
+          inCatch = true;
+          i++;
+          continue;
+        }
+        if (inCatch) catchBody += innerLine + '\n';
+        else tryBody += innerLine + '\n';
+        i++;
+      }
+      // Skip the closing brace line
+      // Parse the try body as a regular step but mark it optional
+      const parsedInner = parsePlaywrightScript(`test('x', async ({ page }) => {\n${tryBody}\n});`);
+      if (parsedInner.steps.length > 0) {
+        const innerStep = parsedInner.steps[0];
+        innerStep.optional = true;
+        innerStep.description = currentDescription || innerStep.description;
+        innerStep.order = steps.length;
+        steps.push(innerStep);
+        currentDescription = '';
+      }
+      continue;
+    }
+    
+    // Detect optional step: if (await locator.waitFor({ ... }).then(() => true, () => false)) { action }
+    const waitForOptionalMatch = line.match(/^if\s*\(await\s+(.*?)\.waitFor\(\s*\{[^}]*\}\s*\)\.then\(\s*\(\)\s*=>\s*true\s*,\s*\(\)\s*=>\s*false\s*\)\)\s*\{/);
+    if (waitForOptionalMatch) {
+      const optSelector = waitForOptionalMatch[1];
+      let ifBody = '';
+      let braceDepth = 1;
+      i++;
+      while (i < lines.length && braceDepth > 0) {
+        const innerLine = lines[i].trim();
+        if (innerLine.includes('{')) braceDepth += (innerLine.match(/{/g) || []).length;
+        if (innerLine.includes('}')) braceDepth -= (innerLine.match(/}/g) || []).length;
+        if (braceDepth === 0) break;
+        ifBody += innerLine + '\n';
+        i++;
+      }
+      const parsedInner = parsePlaywrightScript(`test('x', async ({ page }) => {\n${ifBody}\n});`);
+      if (parsedInner.steps.length > 0) {
+        const innerStep = parsedInner.steps[0];
+        innerStep.optional = true;
+        innerStep.description = currentDescription || innerStep.description;
+        innerStep.order = steps.length;
+        steps.push(innerStep);
+        currentDescription = '';
+      }
+      continue;
+    }
+
+    // Detect if/else block: if (await page.locator(...).isVisible()) { ... } else { ... }
+    // Also handles optional (no-else) if blocks with isVisible()
+    const ifElseMatch = line.match(/^if\s*\(await\s+(.*?)\.isVisible\(\)\)\s*\{/);
+    if (ifElseMatch) {
+      selector = ifElseMatch[1];
+      let ifBody = '';
+      let elseBody = '';
+      let inElse = false;
+      let hasElse = false;
+      let braceDepth = 1;
+      i++;
+      while (i < lines.length && braceDepth > 0) {
+        const innerLine = lines[i].trim();
+        if (innerLine.includes('{')) braceDepth += (innerLine.match(/{/g) || []).length;
+        if (innerLine.includes('}')) braceDepth -= (innerLine.match(/}/g) || []).length;
+        if (braceDepth === 0) break;
+        if (innerLine.startsWith('} else {') || innerLine === '} else {') {
+          inElse = true;
+          hasElse = true;
+          i++;
+          continue;
+        }
+        if (inElse) elseBody += innerLine + '\n';
+        else ifBody += innerLine + '\n';
+        i++;
+      }
+      
+      if (hasElse) {
+        // Full if/else → ifElse step type
+        steps.push({
+          id: generateId(),
+          type: 'ifElse',
+          selector,
+          value: '',
+          ifAction: ifBody.trim(),
+          elseAction: elseBody.trim(),
+          description: currentDescription,
+          disabled,
+          order: steps.length
+        });
+        currentDescription = '';
+      } else {
+        // No else branch → this is an optional step (isVisible guard)
+        const parsedInner = parsePlaywrightScript(`test('x', async ({ page }) => {\n${ifBody}\n});`);
+        if (parsedInner.steps.length > 0) {
+          const innerStep = parsedInner.steps[0];
+          innerStep.optional = true;
+          innerStep.description = currentDescription || innerStep.description;
+          innerStep.order = steps.length;
+          steps.push(innerStep);
+          currentDescription = '';
+        }
+      }
+      continue;
+    }
     
     if (line.includes('page.goto(')) {
       type = 'navigate';
@@ -327,6 +450,7 @@ export function parsePlaywrightScript(code) {
         value,
         waitUntil,
         delay,
+        optional,
         description: currentDescription,
         disabled,
         order: steps.length

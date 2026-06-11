@@ -196,6 +196,9 @@
             <option value="waitForTimeout">⏱️ Wait (Time)</option>
             <option value="screenshot">📸 Take Screenshot</option>
           </optgroup>
+          <optgroup label="Conditional">
+            <option value="ifElse">🔀 If/Else (Element Check)</option>
+          </optgroup>
         </select>
       </div>
       <div class="form-group" id="selector-group">
@@ -210,6 +213,20 @@
         <label class="form-label">Value</label>
         <input type="text" id="step-value" class="form-input" placeholder="Value to input or assert">
         <datalist id="inspector-asset-files-list"></datalist>
+      </div>
+
+      <div class="form-group hidden" id="if-else-group">
+        <label for="step-if-action" class="form-label">If Action <span style="font-weight: normal; color: var(--text-muted); font-size: 0.75rem;">(code when found)</span></label>
+        <textarea id="step-if-action" class="form-input" rows="2" placeholder="await page.locator('#element-a').click();" style="font-family: monospace; font-size: 0.85rem; resize: vertical; margin-bottom: 8px;"></textarea>
+        <label for="step-else-action" class="form-label">Else Action <span style="font-weight: normal; color: var(--text-muted); font-size: 0.75rem;">(fallback when NOT found)</span></label>
+        <textarea id="step-else-action" class="form-input" rows="2" placeholder="await page.locator('#element-b').click();" style="font-family: monospace; font-size: 0.85rem; resize: vertical;"></textarea>
+      </div>
+
+      <div class="form-group" id="optional-group">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">
+          <input type="checkbox" id="step-optional" style="cursor: pointer; accent-color: var(--accent-primary);" />
+          ⛑️ Optional step <span style="font-size: 0.75rem; white-space: normal;">(skip safely if element not found)</span>
+        </label>
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>

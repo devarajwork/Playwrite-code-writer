@@ -57,13 +57,27 @@ const { ipcRenderer } = require('electron');
 
   function getBestSelector(selectors) {
     if (selectors.byTestId) return selectors.byTestId;
-    if (selectors.byId) return selectors.byId;
+    if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
     if (selectors.byLabel) return selectors.byLabel;
     if (selectors.byPlaceholder) return selectors.byPlaceholder;
-    if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
     if (selectors.byText) return selectors.byText;
     if (selectors.byRole) return selectors.byRole;
+    if (selectors.byId) return selectors.byId;
     return selectors.css || '';
+  }
+
+  function getInteractiveElement(el) {
+    const interactiveTags = ['button', 'a', 'input', 'select', 'textarea'];
+    let current = el;
+    while (current && current !== document.body && current !== document.documentElement) {
+      const tagName = current.tagName.toLowerCase();
+      const role = current.getAttribute('role');
+      if (interactiveTags.includes(tagName) || role === 'button' || role === 'link' || role === 'checkbox' || role === 'menuitem') {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return el;
   }
 
   function extractElementData(el) {
@@ -144,10 +158,12 @@ const { ipcRenderer } = require('electron');
 
     // Inspect mouse movements
     document.addEventListener('mouseover', function(e) {
-      const el = e.target;
+      let el = e.target;
       if (!el || el === document.body || el === document.documentElement || el.closest('.pw-visual-tooltip')) {
         return;
       }
+      
+      el = getInteractiveElement(el);
 
       if (activeElement) {
         activeElement.classList.remove('pw-visual-highlight');
@@ -190,8 +206,10 @@ const { ipcRenderer } = require('electron');
 
     // Catch clicks naturally
     document.addEventListener('click', function(e) {
-      const el = e.target;
+      let el = e.target;
       if (!el || el === document.body || el === document.documentElement) return;
+      
+      el = getInteractiveElement(el);
 
       const elementData = extractElementData(el);
 

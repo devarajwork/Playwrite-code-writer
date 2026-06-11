@@ -8,7 +8,10 @@ on:
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
     permissions:
       contents: write
 

@@ -40,6 +40,52 @@ const state = {
   },
 };
 
+const historyState = { past: [], future: [] };
+
+function saveHistory() {
+  historyState.past.push(JSON.parse(JSON.stringify(state.steps)));
+  historyState.future = [];
+  updateHistoryButtons();
+}
+
+function undoSteps() {
+  if (historyState.past.length === 0) return;
+  historyState.future.push(JSON.parse(JSON.stringify(state.steps)));
+  state.steps = historyState.past.pop();
+  updateHistoryButtons();
+  renderSteps();
+  autoGenerate();
+}
+
+function redoSteps() {
+  if (historyState.future.length === 0) return;
+  historyState.past.push(JSON.parse(JSON.stringify(state.steps)));
+  state.steps = historyState.future.pop();
+  updateHistoryButtons();
+  renderSteps();
+  autoGenerate();
+}
+
+function updateHistoryButtons() {
+  const undoBtn = document.getElementById('undo-btn');
+  const redoBtn = document.getElementById('redo-btn');
+  if (undoBtn) {
+    undoBtn.disabled = historyState.past.length === 0;
+    undoBtn.style.opacity = historyState.past.length === 0 ? '0.6' : '1';
+  }
+  if (redoBtn) {
+    redoBtn.disabled = historyState.future.length === 0;
+    redoBtn.style.opacity = historyState.future.length === 0 ? '0.6' : '1';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const undoBtn = document.getElementById('undo-btn');
+  if (undoBtn) undoBtn.addEventListener('click', undoSteps);
+  const redoBtn = document.getElementById('redo-btn');
+  if (redoBtn) redoBtn.addEventListener('click', redoSteps);
+});
+
 // ---- DOM References ----
 const dom = {
   // Toolbar
@@ -121,8 +167,7 @@ const dom = {
   settingsSave: document.getElementById('settings-save'),
   frameworkPathInput: document.getElementById('framework-path-input'),
   frameworkPathBrowseBtn: document.getElementById('framework-path-browse-btn'),
-  cxPhoneInput: document.getElementById('cx-phone-input'),
-  pmPhoneInput: document.getElementById('pm-phone-input'),
+  envVarsContainer: document.getElementById('env-vars-container'),
   // Framework Run Modal
   fwRunModal: document.getElementById('fw-run-modal'),
   fwRunClose: document.getElementById('fw-run-close'),
@@ -277,6 +322,16 @@ function bindEvents() {
   // Full View Modal
   if (dom.fullViewBtn) {
     dom.fullViewBtn.addEventListener('click', () => {
+      // Open Visual Inspector
+      if (dom.scanBtn) {
+        dom.scanBtn.addEventListener('click', () => {
+          let targetUrl = dom.urlInput.value.trim();
+          if (!targetUrl) return;
+          if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
+          const t = new Date().getTime();
+          window.open(`/inspector.html?url=${encodeURIComponent(targetUrl)}&t=${t}`, 'inspector');
+        });
+      }
       const code = state.isRawCode ? dom.codeOutput.textContent : state.generatedCode;
       dom.fullCodeOutput.innerHTML = highlightCode(code);
       dom.fullCodeModal.classList.remove('hidden');
@@ -475,6 +530,7 @@ function bindEvents() {
           order: state.steps.length,
         };
         
+        saveHistory();
         state.steps.push(step);
         showToast(`${info.emoji} ${info.label} step added manually`, 'success');
         renderSteps();
@@ -516,6 +572,7 @@ function bindEvents() {
           order: state.steps.length,
         };
         
+        saveHistory();
         state.steps.push(step);
         showToast(`${info.emoji} ${info.label} step added automatically`, 'success');
         renderSteps();
@@ -530,6 +587,16 @@ function bindEvents() {
 
 
   document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      undoSteps();
+      return;
+    }
+    if (e.ctrlKey && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      redoSteps();
+      return;
+    }
     if (e.key === 'Escape') {
       if (!dom.modal.classList.contains('hidden')) {
         closeModal();
@@ -575,7 +642,8 @@ async function handleScan() {
   }
 
   const fwPath = state.settings.frameworkPath || '';
-  const inspectorUrl = `${altOrigin}/inspector.html?v=2&url=${encodeURIComponent(fullUrl)}&fwPath=${encodeURIComponent(fwPath)}`;
+  const t = new Date().getTime();
+  const inspectorUrl = `${altOrigin}/inspector.html?v=${t}&url=${encodeURIComponent(fullUrl)}&fwPath=${encodeURIComponent(fwPath)}`;
   window.open(inspectorUrl, '_blank', 'width=1200,height=800');
 
   let stepValue = path;
@@ -942,6 +1010,7 @@ function handleAddStep() {
     return;
   }
 
+  saveHistory();
   if (state.editingStepId) {
     // Update existing step
     const step = state.steps.find((s) => s.id === state.editingStepId);
@@ -987,6 +1056,7 @@ function handleAddStep() {
 }
 
 function deleteStep(id) {
+  saveHistory();
   state.steps = state.steps.filter((s) => s.id !== id);
   // Re-order
   state.steps.forEach((s, i) => (s.order = i));
@@ -1097,6 +1167,7 @@ function renderSteps() {
       if (state.dragSourceIndex === null || state.dragSourceIndex === targetIndex) return;
 
       // Reorder
+      saveHistory();
       const [moved] = state.steps.splice(state.dragSourceIndex, 1);
       state.steps.splice(targetIndex, 0, moved);
       state.steps.forEach((s, i) => (s.order = i));
@@ -1136,6 +1207,7 @@ function renderSteps() {
       e.stopPropagation();
       const step = state.steps.find((s) => s.id === toggle.dataset.id);
       if (step) {
+        saveHistory();
         step.disabled = !toggle.checked;
         renderSteps();
         autoGenerate();
@@ -1162,6 +1234,7 @@ function renderSteps() {
       
       const oldIndex = state.steps.findIndex(s => s.id === stepId);
       if (oldIndex !== -1 && oldIndex !== newOrder - 1) {
+        saveHistory();
         const [moved] = state.steps.splice(oldIndex, 1);
         state.steps.splice(newOrder - 1, 0, moved);
         state.steps.forEach((s, i) => s.order = i);
@@ -1264,8 +1337,18 @@ function clientSideGenerate(testName, steps) {
     }
     if (step.disabled) {
       lines.push(`  // [Disabled] ${generateStepLine(step)}`);
+    } else if (step.type === 'ifElse') {
+      const ifCode = step.ifAction ? step.ifAction.replace(/\n/g, '\n    ') : '';
+      const elseCode = step.elseAction ? step.elseAction.replace(/\n/g, '\n    ') : '';
+      let block = `  if (await ${step.selector}.isVisible()) {\n    ${ifCode}\n  }`;
+      if (elseCode) block += ` else {\n    ${elseCode}\n  }`;
+      lines.push(block);
     } else {
-      lines.push(`  ${generateStepLine(step)}`);
+      let line = generateStepLine(step);
+      if (step.optional) {
+        line = `if (await ${step.selector}.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)) {\n    ${line}\n  }`;
+      }
+      lines.push(`  ${line}`);
     }
     lines.push('');
   }
@@ -1451,12 +1534,64 @@ function openSettingsModal() {
   // Load env variables if framework path is set
   if (state.settings.frameworkPath) {
     try {
-      fetch(`/api/framework/env?path=${encodeURIComponent(state.settings.frameworkPath)}`)
+      fetch(`/api/framework/env?path=${encodeURIComponent(state.settings.frameworkPath)}&t=${Date.now()}`)
         .then(res => res.json())
         .then(data => {
-          if (data && !data.error) {
-            if (dom.cxPhoneInput) dom.cxPhoneInput.value = data.cxPhone || '';
-            if (dom.pmPhoneInput) dom.pmPhoneInput.value = data.pmPhone || '';
+          if (data && data.envs && dom.envVarsContainer) {
+            dom.envVarsContainer.innerHTML = '';
+            // 1. Render workspace phone numbers (combined country code + phone)
+            state.workspaces.forEach(w => {
+              const wsPrefix = w.toUpperCase();
+              const countryKey = `${wsPrefix}_TEST_COUNTRY`;
+              const phoneKey = `${wsPrefix}_TEST_PHONE`;
+              
+              // Safely remove quotes and trim to ensure strict equality works perfectly
+              const rawCountryVal = data.envs[countryKey] || 'India';
+              const countryVal = rawCountryVal.replace(/['"]/g, '').trim();
+              const phoneVal = data.envs[phoneKey] || '';
+              console.log('DEBUG: ', { countryKey, rawCountryVal, countryVal });
+              
+              const group = document.createElement('div');
+              group.className = 'form-group';
+              group.style.marginBottom = 'var(--space-3)';
+              
+              group.innerHTML = `
+                <label class="form-label">${wsPrefix} Phone number<span style="color:var(--color-danger, #ef4444);">*</span></label>
+                <div style="display: flex; align-items: center; border: 2px solid #93c5fd; border-radius: 8px; background: var(--bg-surface); padding: 0 4px; overflow: hidden;">
+                  <select data-env-key="${countryKey}" class="dynamic-env-input" style="appearance: none; background: transparent; border: none; padding: 10px 0 10px 12px; font-weight: 600; color: var(--text-primary); cursor: pointer; outline: none; font-size: 14px;">
+                    <option value="India" style="background: var(--bg-surface); color: var(--text-primary);" ${countryVal === 'India' ? 'selected' : ''}>+91</option>
+                    <option value="USA" style="background: var(--bg-surface); color: var(--text-primary);" ${countryVal === 'USA' ? 'selected' : ''}>+1</option>
+                  </select>
+                  
+                  <div style="pointer-events: none; margin-right: 8px; margin-left: 6px; color: var(--text-secondary); display: flex; align-items: center;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </div>
+                  
+                  <input type="text" data-env-key="${phoneKey}" class="dynamic-env-input" placeholder="Enter Phone Number" value="${phoneVal.replace(/"/g, '&quot;')}" style="flex: 1; border: none; background: transparent; padding: 10px 8px 10px 0; font-size: 14px; outline: none; color: var(--text-secondary); font-weight: 500;" />
+                </div>
+              `;
+              dom.envVarsContainer.appendChild(group);
+            });
+
+            // 2. Add any existing keys that aren't workspace phone variables
+            const envKeys = [];
+            state.workspaces.forEach(w => {
+              envKeys.push(`${w.toUpperCase()}_TEST_PHONE`);
+              envKeys.push(`${w.toUpperCase()}_TEST_COUNTRY`);
+            });
+            Object.keys(data.envs).forEach(k => {
+              if (!envKeys.includes(k) && k !== 'TEST_COUNTRY') {
+                const val = data.envs[k] || '';
+                const group = document.createElement('div');
+                group.className = 'form-group';
+                group.style.marginBottom = 'var(--space-3)';
+                group.innerHTML = `
+                  <label class="form-label">${k}</label>
+                  <input type="text" data-env-key="${k}" class="form-input dynamic-env-input" placeholder="e.g. 0009779000" value="${val.replace(/"/g, '&quot;')}" />
+                `;
+                dom.envVarsContainer.appendChild(group);
+              }
+            });
           }
         });
     } catch (e) {
@@ -1510,8 +1645,10 @@ async function handleSaveSettings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           path: state.settings.frameworkPath,
-          cxPhone: dom.cxPhoneInput ? dom.cxPhoneInput.value.trim() : '',
-          pmPhone: dom.pmPhoneInput ? dom.pmPhoneInput.value.trim() : ''
+          envs: Array.from(document.querySelectorAll('.dynamic-env-input')).reduce((acc, input) => {
+            acc[input.getAttribute('data-env-key')] = input.value.trim();
+            return acc;
+          }, {})
         })
       });
     } catch (e) {
@@ -1583,6 +1720,7 @@ function handleDownload() {
 function handleClear() {
   if (state.steps.length === 0 && state.activeTags.length === 0) return;
 
+  saveHistory();
   state.steps = [];
   state.activeTags = [];
   renderTags();
@@ -1679,14 +1817,15 @@ async function handleRunExecution() {
     
     if (workspaceVal === 'auto' || workspaceVal === 'all') {
       if (state.settings && state.settings.saveLocation) {
-        const loc = state.settings.saveLocation.toLowerCase();
-        if (loc.includes('/pm/') || loc.includes('\\pm\\') || loc.endsWith('/pm') || loc.endsWith('\\pm')) {
-          workspaceVal = 'pm';
+        const loc = state.settings.saveLocation.replace(/\\/g, '/').toLowerCase();
+        const found = (state.workspaces || []).find(w => loc.includes(`/${w}/`) || loc.endsWith(`/${w}`));
+        if (found) {
+          workspaceVal = found;
         } else {
-          workspaceVal = 'cx';
+          workspaceVal = (state.workspaces && state.workspaces[0]) || 'cx';
         }
       } else {
-        workspaceVal = 'cx';
+        workspaceVal = (state.workspaces && state.workspaces[0]) || 'cx';
       }
     }
 
@@ -1988,6 +2127,38 @@ async function checkFrameworkConnection() {
     state.fw.connected = status.connected;
 
     if (status.connected) {
+      try {
+        const res = await fetch(`/api/framework/workspaces?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        if (data && data.workspaces) {
+          state.workspaces = data.workspaces;
+          
+          const wsSelect = document.getElementById('workspace-select');
+          if (wsSelect) {
+            const currentVal = wsSelect.value;
+            wsSelect.innerHTML = '<option value="all">All Workspaces</option>';
+            state.workspaces.forEach(w => {
+              wsSelect.innerHTML += `<option value="${w}">${w.toUpperCase()}</option>`;
+            });
+            if (currentVal && currentVal !== 'all' && state.workspaces.includes(currentVal)) {
+              wsSelect.value = currentVal;
+            }
+          }
+
+          const liveWsSelect = document.getElementById('live-runner-workspace');
+          if (liveWsSelect) {
+            const currentLive = liveWsSelect.value;
+            liveWsSelect.innerHTML = '<option value="auto">Auto Session</option>';
+            state.workspaces.forEach(w => {
+              liveWsSelect.innerHTML += `<option value="${w}">${w.toUpperCase()} Workspace</option>`;
+            });
+            if (currentLive && currentLive !== 'auto' && state.workspaces.includes(currentLive)) {
+              liveWsSelect.value = currentLive;
+            }
+          }
+        }
+      } catch(e) { console.error('Failed to load workspaces', e); }
+
       try {
         const assetsObj = await getFrameworkAssets(path);
         if (assetsObj.files && assetsObj.files.length > 0) {

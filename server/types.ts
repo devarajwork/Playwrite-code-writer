@@ -9,6 +9,7 @@ export interface TestStep {
   order: number;
   delay?: number;
   waitUntil?: string;
+  optional?: boolean;
 }
 
 export type StepType =

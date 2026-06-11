@@ -68,7 +68,7 @@ router.post('/', async (req, res) => {
     };
 
     if (!disableAuth && frameworkPath) {
-      const authFile = workspace === 'pm' ? 'pm-user.json' : 'cx-user.json';
+      const authFile = workspace === 'org' ? 'org-user.json' : 'cx-user.json';
       const authPath = join(frameworkPath, 'playwright', '.auth', authFile);
       if (existsSync(authPath)) {
         contextOptions.storageState = authPath;
@@ -98,6 +98,24 @@ router.post('/', async (req, res) => {
       try {
         const sel = step.selector;
         const val = step.value;
+
+        if (step.optional && sel && !sel.includes('goto')) {
+          try {
+            const loc = resolveLocator(page, sel);
+            await loc.waitFor({ state: 'visible', timeout: 5000 });
+          } catch (e) {
+            sendEvent({ type: 'log', message: `⏭️ Skipping optional step (element not found)` });
+            sendEvent({
+              type: 'step_end',
+              id: step.id,
+              success: true,
+              duration: Date.now() - startTime,
+              error: '',
+              screenshot: '',
+            });
+            continue;
+          }
+        }
 
         switch (step.type) {
           case 'navigate':

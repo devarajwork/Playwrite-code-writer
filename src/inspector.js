@@ -48,6 +48,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     description: document.getElementById('step-description'),
     selectorGroup: document.getElementById('selector-group'),
     valueGroup: document.getElementById('value-group'),
+    ifElseGroup: document.getElementById('if-else-group'),
+    ifActionInput: document.getElementById('step-if-action'),
+    elseActionInput: document.getElementById('step-else-action'),
+    optionalGroup: document.getElementById('optional-group'),
+    stepOptional: document.getElementById('step-optional'),
     addBtn: document.getElementById('add-step-btn'),
     status: document.getElementById('status-message')
   };
@@ -68,7 +73,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     dom.selectorGroup.style.display = info.needsSelector ? 'block' : 'none';
 
     // Show/hide value field
-    dom.valueGroup.style.display = info.needsValue ? 'block' : 'none';
+    dom.valueGroup.style.display = (info.needsValue && type !== 'ifElse') ? 'block' : 'none';
+
+    // Show/hide If/Else fields
+    if (dom.ifElseGroup) {
+      if (type === 'ifElse') dom.ifElseGroup.classList.remove('hidden');
+      else dom.ifElseGroup.classList.add('hidden');
+    }
+
+    // Show/hide Optional checkbox
+    if (dom.optionalGroup) {
+      if (type === 'ifElse' || type === 'navigate') dom.optionalGroup.classList.add('hidden');
+      else dom.optionalGroup.classList.remove('hidden');
+    }
 
     // Update placeholder
     if (info.valuePlaceholder !== undefined) {
@@ -281,13 +298,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     const type = dom.type.value;
     const value = dom.value.value;
     const description = dom.description.value;
+    const optional = dom.stepOptional ? dom.stepOptional.checked : false;
 
     const step = {
       type,
       selector,
       value,
-      description
+      description,
+      optional
     };
+
+    if (type === 'ifElse') {
+      step.ifAction = dom.ifActionInput ? dom.ifActionInput.value.trim() : '';
+      step.elseAction = dom.elseActionInput ? dom.elseActionInput.value.trim() : '';
+    }
 
     // Send step to the main tab (opener)
     if (window.opener && !window.opener.closed) {

@@ -97,11 +97,18 @@
         </h2>
         <span class="panel__badge" id="step-count">0</span>
         
+        <div style="display:flex; gap: 4px; margin-left: 12px;">
+          <button id="undo-btn" class="btn btn--icon" title="Undo (Ctrl+Z)" disabled style="padding:4px; opacity:0.6; transition:opacity 0.2s;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transform: scaleX(-1);"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          </button>
+          <button id="redo-btn" class="btn btn--icon" title="Redo (Ctrl+Y)" disabled style="padding:4px; opacity:0.6; transition:opacity 0.2s;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          </button>
+        </div>
+        
         <div style="display:flex; align-items:center; gap:8px; margin-left: auto; margin-right: 8px;">
           <select id="live-runner-workspace" class="form-select" style="font-size:var(--text-xs); padding:2px 8px; min-height:28px; height:28px; width: 130px; background: var(--bg-surface); border-color: var(--border-subtle); color: var(--text-secondary); cursor: pointer;" title="Select Auth Session for Live Runner">
             <option value="auto">Auto Session</option>
-            <option value="cx">CX (cx-user.json)</option>
-            <option value="pm">PM (pm-user.json)</option>
           </select>
         </div>
 
@@ -262,6 +269,9 @@
               <option value="waitForTimeout">⏱️ Wait (Time)</option>
               <option value="screenshot">📸 Take Screenshot</option>
             </optgroup>
+            <optgroup label="Conditional">
+              <option value="ifElse">🔀 If/Else (Element Check)</option>
+            </optgroup>
           </select>
         </div>
 
@@ -295,6 +305,20 @@
             <option value="networkidle">networkidle</option>
             <option value="commit">commit</option>
           </select>
+        </div>
+
+        <div class="form-group hidden" id="if-else-group">
+          <label for="step-if-action" class="form-label">If Action <span class="form-hint" style="display:inline;">(code to run when element IS found)</span></label>
+          <textarea id="step-if-action" class="form-input" rows="2" placeholder="await page.locator('#element-a').click();" style="font-family: var(--font-mono); font-size: var(--text-xs); resize: vertical;"></textarea>
+          <label for="step-else-action" class="form-label" style="margin-top: var(--space-2);">Else Action <span class="form-hint" style="display:inline;">(fallback when element is NOT found)</span></label>
+          <textarea id="step-else-action" class="form-input" rows="2" placeholder="await page.locator('#element-b').click();" style="font-family: var(--font-mono); font-size: var(--text-xs); resize: vertical;"></textarea>
+        </div>
+
+        <div class="form-group" id="optional-group">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--text-sm); color: var(--text-secondary);">
+            <input type="checkbox" id="step-optional" style="cursor: pointer; accent-color: var(--accent-primary);" />
+            ⛑️ Optional step <span class="form-hint" style="display:inline; margin-left:4px;">(checks isVisible() first — skips safely if element not found)</span>
+          </label>
         </div>
 
         <div class="form-group">
@@ -339,8 +363,6 @@
           <div style="display:flex; align-items:center; gap:8px;">
             <select id="workspace-select" class="form-select" style="font-size:var(--text-sm);min-height:36px;box-sizing:border-box;">
               <option value="all">All Workspaces</option>
-              <option value="cx">CX Portal</option>
-              <option value="pm">Project Management</option>
             </select>
           </div>
           <button id="fw-run-all-btn" class="btn btn--primary" style="font-size:var(--text-sm);min-height:36px;padding:6px var(--space-4);">⚡ Run All</button>
@@ -504,14 +526,8 @@
             <div class="fw-section__title">🔑 Local Test Credentials</div>
             <span class="form-hint" style="display:block; margin-bottom:var(--space-3); margin-top:-4px;">These are saved directly to your local <code style="background:var(--bg-panel-alt);padding:2px 4px;border-radius:4px;">.env.dev</code> file and will be used when you run "Setup Only".</span>
             
-            <div class="form-group">
-              <label for="cx-phone-input" class="form-label">CX Test Phone (CX_TEST_PHONE)</label>
-              <input type="text" id="cx-phone-input" class="form-input" placeholder="e.g. 0009090000" />
-            </div>
-
-            <div class="form-group" style="margin-bottom: 0;">
-              <label for="pm-phone-input" class="form-label">PM Test Phone (PM_TEST_PHONE)</label>
-              <input type="text" id="pm-phone-input" class="form-input" placeholder="e.g. 0009779000" />
+            <div id="env-vars-container" style="display: flex; flex-direction: column; gap: 12px;">
+              <!-- Dynamic env inputs will be generated here -->
             </div>
           </div>
       </div>

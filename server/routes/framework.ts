@@ -34,13 +34,41 @@ router.get('/status', (req, res) => {
   activeFrameworkPath = resolved;
 
   // Check if playwright/.auth exists
-  const hasAuth = existsSync(join(resolved, 'playwright', '.auth', 'user.json')) || existsSync(join(resolved, 'playwright', '.auth', 'pm-user.json'));
+  const hasAuth = existsSync(join(resolved, 'playwright', '.auth', 'user.json')) || existsSync(join(resolved, 'playwright', '.auth', 'org-user.json'));
 
   res.json({
     connected: true,
     path: resolved,
     hasAuth,
   });
+});
+
+// ─── GET /api/framework/workspaces ─────────────────────────────────────────
+// Detects available workspaces by reading the tests/ directory
+router.get('/workspaces', (req, res) => {
+  const rawPath = (req.query.path as string) || '';
+  const resolved = resolveFrameworkPath(rawPath);
+
+  if (!resolved) {
+    res.json({ workspaces: [] });
+    return;
+  }
+
+  const testsDir = join(resolved, 'tests');
+  if (!existsSync(testsDir)) {
+    res.json({ workspaces: [] });
+    return;
+  }
+
+  try {
+    const items = readdirSync(testsDir, { withFileTypes: true });
+    const workspaces = items
+      .filter(item => item.isDirectory() && item.name !== 'setup' && item.name !== 'assets')
+      .map(item => item.name);
+    res.json({ workspaces });
+  } catch (e) {
+    res.json({ workspaces: [] });
+  }
 });
 
 // ─── GET /api/framework/assets ─────────────────────────────────────────────
@@ -95,18 +123,21 @@ router.get('/env', (req, res) => {
   }
 
   const envPath = join(resolved, '.env.dev');
-  let cxPhone = '';
-  let pmPhone = '';
+  let envs: Record<string, string> = {};
 
   if (existsSync(envPath)) {
     const content = readFileSync(envPath, 'utf-8');
-    const cxMatch = content.match(/^CX_TEST_PHONE=(.*)$/m);
-    const pmMatch = content.match(/^PM_TEST_PHONE=(.*)$/m);
-    if (cxMatch) cxPhone = cxMatch[1].trim();
-    if (pmMatch) pmPhone = pmMatch[1].trim();
+    const lines = content.split('\n');
+    for (const line of lines) {
+      // Capture any TEST_ variables or specific framework variables
+      const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
+      if (match) {
+        envs[match[1]] = match[2].trim();
+      }
+    }
   }
 
-  res.json({ cxPhone, pmPhone });
+  res.json({ envs });
 });
 
 router.post('/env', express.json(), (req, res) => {
@@ -118,32 +149,24 @@ router.post('/env', express.json(), (req, res) => {
     return;
   }
 
-  const { cxPhone, pmPhone } = req.body;
+  const envsToUpdate = req.body.envs || {};
   const envPath = join(resolved, '.env.dev');
-  let newContent = '';
+  let content = '';
 
   if (existsSync(envPath)) {
-    let content = readFileSync(envPath, 'utf-8');
-    
-    // Update or append CX_TEST_PHONE
-    if (content.match(/^CX_TEST_PHONE=.*$/m)) {
-      content = content.replace(/^CX_TEST_PHONE=.*$/m, `CX_TEST_PHONE=${cxPhone}`);
-    } else {
-      content += `\nCX_TEST_PHONE=${cxPhone}`;
-    }
-
-    // Update or append PM_TEST_PHONE
-    if (content.match(/^PM_TEST_PHONE=.*$/m)) {
-      content = content.replace(/^PM_TEST_PHONE=.*$/m, `PM_TEST_PHONE=${pmPhone}`);
-    } else {
-      content += `\nPM_TEST_PHONE=${pmPhone}`;
-    }
-    newContent = content.trim() + '\n';
-  } else {
-    newContent = `CX_TEST_PHONE=${cxPhone}\nPM_TEST_PHONE=${pmPhone}\n`;
+    content = readFileSync(envPath, 'utf-8');
   }
 
-  writeFileSync(envPath, newContent, 'utf-8');
+  for (const [key, val] of Object.entries(envsToUpdate)) {
+    const regex = new RegExp(`^${key}=.*$`, 'm');
+    if (content.match(regex)) {
+      content = content.replace(regex, `${key}=${val}`);
+    } else {
+      content += `\n${key}=${val}`;
+    }
+  }
+
+  writeFileSync(envPath, content.trim() + '\n', 'utf-8');
   res.json({ success: true });
 });
 
@@ -450,41 +473,39 @@ router.get('/run', (req, res) => {
   let cmdArgs = ['node_modules/@playwright/test/cli.js', 'test'];
 
   if (script === 'setup') {
-    if (workspace === 'cx') {
-      cmdArgs.push('--project=setup-cx');
-    } else if (workspace === 'pm') {
-      cmdArgs.push('--project=setup-pm');
+    if (workspace && workspace !== 'all') {
+      cmdArgs.push(`--project=setup-${workspace}`);
     } else {
-      cmdArgs.push('--project=setup-cx');
-      cmdArgs.push('--project=setup-pm');
+      // Read all workspaces dynamically to setup all
+      const testsDir = join(resolved, 'tests');
+      if (existsSync(testsDir)) {
+        const items = readdirSync(testsDir, { withFileTypes: true });
+        items.forEach(item => {
+          if (item.isDirectory() && item.name !== 'setup' && item.name !== 'assets') {
+            cmdArgs.push(`--project=setup-${item.name}`);
+          }
+        });
+      }
     }
-  } else if (script === 'all' && workspace === 'cx') {
-    cmdArgs.push('--project=cx-tests');
-  } else if (script === 'all' && workspace === 'pm') {
-    cmdArgs.push('--project=pm-tests');
-  } else if (script === 'all' && workspace === 'all') {
-    // Force 2 workers locally so CX and PM run perfectly in parallel!
-    cmdArgs.push('--workers=2');
+  } else if (script === 'all') {
+    if (workspace && workspace !== 'all') {
+      cmdArgs.push(`--project=${workspace}-tests`);
+    } else {
+      // Default to 2 workers to parallelize all workspaces
+      cmdArgs.push('--workers=2');
+    }
   } else if (script === 'module' && (moduleName || modulePath)) {
-    // Playwright uses the CLI argument to match against files within its testDir (which is usually ./tests)
-    // If we pass 'tests/modules/test.spec.ts', it might resolve to 'tests/tests/modules/test.spec.ts'.
-    // Passing just the moduleName or a relative path from the testDir works perfectly.
-    
     let filterPattern = moduleName;
     if (modulePath) {
-      // CRITICAL: Playwright's Regex matching is notoriously brittle with absolute paths 
-      // and path separators on Windows (backslash vs forward slash escaping).
-      // The most robust way to filter is to simply pass the file or folder's basename!
-      // This perfectly matches the file without any path separator ambiguity.
       filterPattern = basename(modulePath);
     }
-    
     cmdArgs.push(filterPattern as string);
   } else if (script === 'tag' && moduleName) {
-    if (workspace === 'cx') cmdArgs.push('--project=cx-tests');
-    else if (workspace === 'pm') cmdArgs.push('--project=pm-tests');
-    else if (workspace === 'all') cmdArgs.push('--workers=2');
-    
+    if (workspace && workspace !== 'all') {
+      cmdArgs.push(`--project=${workspace}-tests`);
+    } else {
+      cmdArgs.push('--workers=2');
+    }
     cmdArgs.push('--grep', moduleName);
   }
 
