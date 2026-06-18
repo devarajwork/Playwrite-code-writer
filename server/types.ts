@@ -10,6 +10,9 @@ export interface TestStep {
   waitUntil?: string;
   optional?: boolean;
   fallbacks?: string[];
+  delay?: number;
+  ifAction?: string;
+  elseAction?: string;
 }
 
 export type StepType =
@@ -21,6 +24,7 @@ export type StepType =
   | 'uncheck'
   | 'upload'
   | 'hover'
+  | 'ifElse'
   | 'waitForSelector'
   | 'assertVisible'
   | 'assertText'
