@@ -82,7 +82,7 @@ router.post('/start', async (req, res) => {
     });
 
     // Load the advanced semantic engine dynamically
-    let injectScriptPath = path.join(__dirname, '../../dist/client/inspector-inject.js');
+    let injectScriptPath = path.join(__dirname, '../../client/inspector-inject.js');
     if (!fs.existsSync(injectScriptPath)) {
       injectScriptPath = path.join(__dirname, '../../public/inspector-inject.js');
     }

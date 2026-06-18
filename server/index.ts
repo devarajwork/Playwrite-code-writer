@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import scanRouter from './routes/scan.js';
 import generateRouter from './routes/generate.js';
@@ -42,7 +43,10 @@ app.use((req, res, next) => {
 });
 
 // Serve Vite-built frontend from dist/client
-const clientDist = path.join(__dirname, '..', 'client');
+let clientDist = path.join(__dirname, '../client'); // For dist/server -> dist/client
+if (!fs.existsSync(clientDist)) {
+  clientDist = path.join(__dirname, '../dist/client'); // For root/server -> root/dist/client
+}
 app.use(express.static(clientDist));
 
 // Health check
