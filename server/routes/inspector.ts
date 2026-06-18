@@ -3,6 +3,10 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { resolveLocator } from './run.js';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = Router();
 
@@ -78,7 +82,10 @@ router.post('/start', async (req, res) => {
     });
 
     // Load the advanced semantic engine dynamically
-    let injectScriptPath = path.join(process.cwd(), 'public', 'inspector-inject.js');
+    let injectScriptPath = path.join(__dirname, '../../dist/client/inspector-inject.js');
+    if (!fs.existsSync(injectScriptPath)) {
+      injectScriptPath = path.join(__dirname, '../../public/inspector-inject.js');
+    }
     let injectScriptContent = '';
     try {
       injectScriptContent = fs.readFileSync(injectScriptPath, 'utf-8');
