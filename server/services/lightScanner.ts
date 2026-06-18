@@ -37,6 +37,8 @@ function buildSelectors(tagName: string, attrs: Record<string, string>, text: st
     byRole: '',
     byLabel: '',
     byPlaceholder: '',
+    byAltText: '',
+    byTitle: '',
     byText: '',
     css: '',
     xpath: '',
@@ -50,6 +52,14 @@ function buildSelectors(tagName: string, attrs: Record<string, string>, text: st
   }
   if (placeholder) {
     selectors.byPlaceholder = `page.getByPlaceholder('${placeholder.replace(/'/g, "\\'")}')`;
+  }
+  const altText = attrs['alt'] || '';
+  if (altText) {
+    selectors.byAltText = `page.getByAltText('${altText.replace(/'/g, "\\'")}')`;
+  }
+  const title = attrs['title'] || '';
+  if (title) {
+    selectors.byTitle = `page.getByTitle('${title.replace(/'/g, "\\'")}')`;
   }
   if (text && text.length < 60) {
     selectors.byText = `page.getByText('${text.replace(/'/g, "\\'")}', { exact: true })`;
@@ -124,6 +134,8 @@ export async function scanUrlLightweight(url: string): Promise<ScanResponse> {
     const text = rawText.length > 80 ? rawText.substring(0, 80) + '…' : rawText;
     const placeholder = attrs['placeholder'] || '';
     const ariaLabel = attrs['aria-label'] || '';
+    const altText = attrs['alt'] || '';
+    const title = attrs['title'] || '';
     const href = attrs['href'] || '';
     const type = attrs['type'] || '';
     const className = (attrs['class'] || '')
@@ -152,6 +164,8 @@ export async function scanUrlLightweight(url: string): Promise<ScanResponse> {
       placeholder,
       text,
       ariaLabel,
+      altText,
+      title,
       href,
       selectors: selectors as any,
     });

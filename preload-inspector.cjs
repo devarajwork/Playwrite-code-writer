@@ -60,6 +60,8 @@ const { ipcRenderer } = require('electron');
     if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
     if (selectors.byLabel) return selectors.byLabel;
     if (selectors.byPlaceholder) return selectors.byPlaceholder;
+    if (selectors.byAltText) return selectors.byAltText;
+    if (selectors.byTitle) return selectors.byTitle;
     if (selectors.byText) return selectors.byText;
     if (selectors.byRole) return selectors.byRole;
     if (selectors.byId) return selectors.byId;
@@ -67,7 +69,18 @@ const { ipcRenderer } = require('electron');
   }
 
   function getInteractiveElement(el) {
+    let check = el;
+    while (check && check !== document.body && check !== document.documentElement) {
+      if (check.isContentEditable || check.hasAttribute('contenteditable') || check.getAttribute('role') === 'textbox' || check.hasAttribute('data-lexical-editor')) {
+        return check;
+      }
+      check = check.parentElement;
+    }
+
     const interactiveTags = ['button', 'a', 'input', 'select', 'textarea'];
+    if (el && el.tagName && ['input', 'select', 'textarea'].includes(el.tagName.toLowerCase())) {
+      return el;
+    }
     let current = el;
     while (current && current !== document.body && current !== document.documentElement) {
       const tagName = current.tagName.toLowerCase();
@@ -90,6 +103,8 @@ const { ipcRenderer } = require('electron');
     const text = (el.textContent || '').trim();
     const placeholder = el.getAttribute('placeholder') || '';
     const ariaLabel = el.getAttribute('aria-label') || '';
+    const altText = el.getAttribute('alt') || '';
+    const title = el.getAttribute('title') || '';
     const dataTestId = el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-cy') || '';
     const role = el.getAttribute('role') || '';
     const type = el.type || el.getAttribute('type') || '';
@@ -101,6 +116,8 @@ const { ipcRenderer } = require('electron');
       byRole: "",
       byLabel: ariaLabel ? "page.getByLabel('" + ariaLabel.replace(/'/g, "\\\\'") + "')" : "",
       byPlaceholder: placeholder ? "page.getByPlaceholder('" + placeholder.replace(/'/g, "\\\\'") + "')" : "",
+      byAltText: altText ? "page.getByAltText('" + altText.replace(/'/g, "\\\\'") + "')" : "",
+      byTitle: title ? "page.getByTitle('" + title.replace(/'/g, "\\\\'") + "')" : "",
       byText: (text && text.length < 50) ? "page.getByText('" + text.replace(/'/g, "\\\\'") + "', { exact: true })" : "",
       css: "",
       xpath: ""
@@ -134,7 +151,51 @@ const { ipcRenderer } = require('electron');
     } else if (className) {
       css = tagName + '.' + className.split(' ')[0];
     }
-    selectors.css = "page.locator('" + css + "')";
+    
+    let parent = el.parentElement;
+    for (let i = 0; i < 5 && parent && parent !== document.body; i++) {
+        const pId = parent.id;
+        const pTestId = parent.getAttribute('data-testid') || parent.getAttribute('data-test-id');
+        const pText = (parent.textContent || '').trim();
+        if (pTestId || pId || parent.tagName.toLowerCase() === 'button' || parent.getAttribute('role') === 'button' || (pText && pText.length < 100 && pText !== text)) {
+          let childSelector = tagName === 'button' ? "getByRole('button')" : "locator('" + css + "')";
+          
+          try {
+            const matches = parent.querySelectorAll(css);
+            if (matches.length > 1) {
+              const index = Array.from(matches).indexOf(el);
+              if (index === 0) childSelector += ".first()";
+              else if (index === matches.length - 1) childSelector += ".last()";
+              else if (index !== -1) childSelector += ".nth(" + index + ")";
+            }
+          } catch (e) {}
+
+          if (pTestId) {
+            selectors.css = "page.locator('[data-testid=\"" + pTestId + "\"]')." + childSelector;
+            break;
+          } else if (pId) {
+            selectors.css = "page.locator('#" + pId + "')." + childSelector;
+            break;
+          } else if (parent.tagName.toLowerCase() === 'button' && pText && pText.length < 50) {
+            const escapedName = pText.replace(/'/g, "\\\\'");
+            selectors.css = "page.getByRole('button', { name: '" + escapedName + "' })." + childSelector;
+            break;
+          } else if (parent.getAttribute('role') === 'button' && pText && pText.length < 50) {
+            const escapedName = pText.replace(/'/g, "\\\\'");
+            selectors.css = "page.getByRole('button', { name: '" + escapedName + "' })." + childSelector;
+            break;
+          } else if (pText && pText.length < 100 && pText !== text) {
+            const firstLine = pText.split('\n')[0].trim();
+            if (firstLine && firstLine.length < 50) {
+              const escapedRegexText = firstLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/'/g, "\\\\'");
+              selectors.css = "page.locator('" + parent.tagName.toLowerCase() + "').filter({ hasText: /^" + escapedRegexText + "$/ })." + childSelector;
+              break;
+            }
+          }
+        }
+        parent = parent.parentElement;
+    }
+    if (!selectors.css) selectors.css = "page.locator('" + css + "')";
 
     // Build XPath locator statement
     let xpath = '//' + tagName;
@@ -150,7 +211,7 @@ const { ipcRenderer } = require('electron');
     selectors.xpath = "page.locator('" + xpath + "')";
 
     const bestSelector = getBestSelector(selectors);
-    return { tagName, id, bestSelector, text, placeholder, selectors, type };
+    return { tagName, id, bestSelector, text, placeholder, altText, title, selectors, type };
   }
 
   function init() {
@@ -222,13 +283,25 @@ const { ipcRenderer } = require('electron');
     // Catch input/select updates on blur/change
     ['blur', 'change'].forEach(function(eventType) {
       document.addEventListener(eventType, function(e) {
-        const el = e.target;
-        if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT')) return;
+        let el = e.target;
+        if (!el) return;
 
-        const value = el.value;
+        el = getInteractiveElement(el);
+
+        const isContentEditable = el.isContentEditable || el.hasAttribute('contenteditable') || el.getAttribute('role') === 'textbox' || el.hasAttribute('data-lexical-editor');
+        if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT' && !isContentEditable) return;
+
+        let value = el.value;
+        if (value === undefined && isContentEditable) {
+            value = el.innerText || el.textContent || '';
+        }
+
         if (!value && el.type !== 'file') return;
 
-        const elementData = extractElementData(el);
+        if (el._lastValue === value) return;
+        el._lastValue = value;
+
+        const elementData = extractElementData(el, e);
         notifyParent({
           type: 'INPUT_CHANGED',
           element: {

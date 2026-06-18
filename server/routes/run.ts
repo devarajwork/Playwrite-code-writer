@@ -3,10 +3,11 @@ import { chromium, type Page, type Locator } from 'playwright';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import type { TestStep } from '../types.js';
+// No AI import needed anymore
 
 const router = Router();
 
-function resolveLocator(page: Page, selectorStr: string): Locator {
+export function resolveLocator(page: Page, selectorStr: string): Locator {
   if (!selectorStr) {
     throw new Error('Selector string is empty');
   }
@@ -278,9 +279,57 @@ router.post('/', async (req, res) => {
             throw new Error(`Unsupported step type: ${step.type}`);
         }
       } catch (err: any) {
-        stepSuccess = false;
-        errorMsg = err.message;
-        overallSuccess = false;
+        const isHealableError = err.message && (
+          err.message.includes('Timeout') || 
+          err.message.includes('Not a checkbox or radio button') ||
+          err.message.includes('is not visible')
+        );
+
+        if (isHealableError && step.type !== 'navigate' && step.fallbacks && step.fallbacks.length > 0) {
+          sendEvent({ type: 'log', message: `🤖 Error detected on step ${step.id}: ${err.message.split('\\n')[0]}. Testing ${step.fallbacks.length} fallback locators...` });
+          
+          let fallbackSucceeded = false;
+          let successfulFallback = '';
+
+          for (const fallback of step.fallbacks) {
+            try {
+              sendEvent({ type: 'log', message: `🔄 Trying fallback: ${fallback}` });
+              const newLoc = resolveLocator(page, fallback);
+              
+              if (step.type === 'click') await newLoc.click({ timeout: 2000 });
+              else if (step.type === 'fill') await newLoc.fill(step.value || '', { timeout: 2000 });
+              else if (step.type === 'check') await newLoc.check({ timeout: 2000 });
+              else if (step.type === 'hover') await newLoc.hover({ timeout: 2000 });
+              else if (step.type === 'dblclick') await newLoc.dblclick({ timeout: 2000 });
+              else await newLoc.waitFor({ state: 'visible', timeout: 2000 }); // Default verification
+
+              fallbackSucceeded = true;
+              successfulFallback = fallback;
+              break;
+            } catch (fallbackErr) {
+              // Ignore failure, try next fallback
+            }
+          }
+
+          if (fallbackSucceeded) {
+            sendEvent({ type: 'log', message: `✨ Fallback succeeded: ${successfulFallback}` });
+            const oldSelector = step.selector;
+            step.selector = successfulFallback; // Temporarily update for this run
+            
+            sendEvent({ type: 'auto_healed', id: step.id, oldSelector, newSelector: successfulFallback });
+            stepSuccess = true;
+            errorMsg = '';
+          } else {
+            sendEvent({ type: 'log', message: `❌ All fallback locators failed.` });
+            stepSuccess = false;
+            errorMsg = err.message;
+            overallSuccess = false;
+          }
+        } else {
+          stepSuccess = false;
+          errorMsg = err.message;
+          overallSuccess = false;
+        }
       }
 
       // Capture screenshot after step runs to show live website progress

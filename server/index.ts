@@ -8,6 +8,7 @@ import runRouter from './routes/run.js';
 import proxyRouter from './routes/proxy.js';
 import frameworkRouter from './routes/framework.js';
 import inspectorRouter from './routes/inspector.js';
+import githubRouter from './routes/github.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,7 @@ app.use('/api/run', runRouter);
 app.use('/api/proxy', proxyRouter);
 app.use('/api/framework', frameworkRouter);
 app.use('/api/inspector', inspectorRouter);
+app.use('/api/github-runs', githubRouter);
 
 // Catch-all reverse proxy middleware to fetch target site assets and APIs to bypass CORS
 app.use(async (req, res, next) => {

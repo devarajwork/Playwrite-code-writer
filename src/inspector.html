@@ -1,279 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Visual Inspector</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Playwright Visual Inspector</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg-surface: #1e1e2e;
-      --bg-panel: #252538;
-      --text-primary: #f8fafc;
-      --text-muted: #94a3b8;
-      --accent-primary: #8b5cf6;
-      --accent-hover: #7c3aed;
-      --border-default: rgba(148, 163, 184, 0.2);
-      --border-focus: rgba(139, 92, 246, 0.5);
-      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-    }
-    * {
-      box-sizing: border-box;
-    }
     body {
       margin: 0;
       padding: 0;
-      display: flex;
-      height: 100vh;
-      font-family: var(--font-sans);
-      background: var(--bg-surface);
-      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      background: #1e1e2e;
+      color: #f8fafc;
       overflow: hidden;
-    }
-    .sidebar {
-      width: 340px;
-      background: var(--bg-panel);
-      border-right: 1px solid var(--border-default);
       display: flex;
       flex-direction: column;
-      box-shadow: 4px 0 15px rgba(0,0,0,0.1);
-      z-index: 20;
-    }
-    .header {
-      padding: 20px;
-      border-bottom: 1px solid var(--border-default);
-      font-weight: 600;
-      font-size: 1.1rem;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
-    }
-    .content {
-      padding: 20px;
-      flex: 1;
-      overflow-y: auto;
-    }
-    .form-group {
-      margin-bottom: 24px;
-    }
-    .form-label {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 0.85rem;
-      font-weight: 500;
-      color: var(--text-muted);
-    }
-    .form-input, .form-select {
-      width: 100%;
-      padding: 10px 12px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-default);
-      color: var(--text-primary);
-      border-radius: 6px;
-      font-family: inherit;
-      font-size: 0.9rem;
-      transition: all 0.2s ease;
-    }
-    .form-input:focus, .form-select:focus {
-      outline: none;
-      border-color: var(--accent-primary);
-      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
-    }
-    .form-input::placeholder {
-      color: #64748b;
-    }
-    .form-input[readonly] {
-      background: rgba(30, 30, 46, 0.5);
-      color: #cbd5e1;
-      cursor: default;
+      height: 100vh;
     }
     
-    #selector-choices-wrapper {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px dashed var(--border-default);
+    header {
+      background: #181825;
+      padding: 12px 20px;
       display: flex;
-      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
       gap: 6px;
-    }
-    #selector-choices-dropdown {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.8rem;
-      padding: 8px 10px;
-      background: rgba(30, 30, 46, 0.8);
-    }
-
-    .btn {
-      width: 100%;
-      padding: 12px;
-      background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover));
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
+      background: rgba(16, 185, 129, 0.1);
+      color: #10b981;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
       font-weight: 600;
-      font-size: 1rem;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 6px -1px rgba(139, 92, 246, 0.3), 0 2px 4px -1px rgba(139, 92, 246, 0.2);
-    }
-    .btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 8px -1px rgba(139, 92, 246, 0.4), 0 4px 6px -1px rgba(139, 92, 246, 0.3);
-    }
-    .btn:active {
-      transform: translateY(1px);
-      box-shadow: 0 2px 4px -1px rgba(139, 92, 246, 0.3);
+      border: 1px solid rgba(16, 185, 129, 0.2);
     }
 
-    .main-area {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      position: relative;
-      overflow: auto;
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
     }
-    webview {
-      border: none;
-      width: 100%;
-      height: 100%;
-      background: white;
+
+    .main-content {
       flex: 1;
-    }
-    #loading {
-      position: absolute;
-      inset: 0;
-      background: var(--bg-surface);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      z-index: 10;
+      padding: 40px;
+      text-align: center;
     }
-    .hidden {
-      display: none !important;
+
+    .icon-container {
+      width: 64px;
+      height: 64px;
+      background: rgba(137, 180, 250, 0.1);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
     }
-    input:checked ~ .toggle-track {
-      background-color: #3b82f6; /* blue-500 */
-      border-color: #2563eb;
+
+    .icon-container svg {
+      width: 32px;
+      height: 32px;
+      color: #89b4fa;
     }
-    input:checked ~ .toggle-dot {
-      transform: translateX(16px);
-      background-color: white;
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0 0 12px 0;
+      color: #f8fafc;
     }
+
+    p {
+      font-size: 14px;
+      color: #bac2de;
+      max-width: 400px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .instructions {
+      margin-top: 32px;
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: left;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .instruction-step {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .instruction-step:last-child {
+      margin-bottom: 0;
+    }
+
+    .step-number {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #313244;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #89b4fa;
+      flex-shrink: 0;
+    }
+
+    .step-text {
+      font-size: 13px;
+      color: #bac2de;
+      line-height: 1.4;
+      padding-top: 3px;
+    }
+
   </style>
 </head>
 <body>
-  <div class="sidebar">
-    <div class="header">
-      <span style="font-size: 1.4rem;">🎭</span> Add Test Step
+  <header>
+    <div class="title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #89b4fa"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
+      Playwright Inspector
     </div>
-    <div class="content">
-      <div class="form-group">
-        <label class="form-label">Step Type</label>
-        <select id="step-type" class="form-select">
-          <optgroup label="Navigation">
-            <option value="navigate">🌐 Navigate to URL</option>
-          </optgroup>
-          <optgroup label="Actions">
-            <option value="click">👆 Click</option>
-            <option value="dblclick">👆👆 Double Click</option>
-            <option value="fill">✏️ Fill / Type</option>
-            <option value="select">📋 Select Option</option>
-            <option value="check">☑️ Check</option>
-            <option value="uncheck">⬜ Uncheck</option>
-            <option value="upload">📁 Upload File</option>
-            <option value="hover">🖱️ Hover</option>
-            <option value="press">⌨️ Press Key</option>
-            <option value="scrollTo">📜 Scroll To</option>
-          </optgroup>
-          <optgroup label="Assertions">
-            <option value="assertVisible">👁️ Assert Visible</option>
-            <option value="assertText">📝 Assert Text</option>
-            <option value="assertValue">🔢 Assert Value</option>
-            <option value="assertUrl">🔗 Assert URL</option>
-          </optgroup>
-          <optgroup label="Utilities">
-            <option value="waitForSelector">⏳ Wait for Element</option>
-            <option value="waitForTimeout">⏱️ Wait (Time)</option>
-            <option value="screenshot">📸 Take Screenshot</option>
-          </optgroup>
-          <optgroup label="Conditional">
-            <option value="ifElse">🔀 If/Else (Element Check)</option>
-          </optgroup>
-        </select>
-      </div>
-      <div class="form-group" id="selector-group">
-        <label class="form-label">Selector</label>
-        <input type="text" id="step-selector" class="form-input" placeholder="Select an element..." readonly>
-        <div id="selector-choices-wrapper" class="hidden">
-          <label for="selector-choices-dropdown" class="form-label" style="font-size: 0.75rem; margin-bottom: 4px;">Alternative Selectors:</label>
-          <select id="selector-choices-dropdown" class="form-select"></select>
-        </div>
-      </div>
-      <div class="form-group" id="value-group">
-        <label class="form-label">Value</label>
-        <input type="text" id="step-value" class="form-input" placeholder="Value to input or assert">
-        <datalist id="inspector-asset-files-list"></datalist>
-      </div>
+    <div class="status-badge" id="connection-status">
+      <div class="status-dot"></div>
+      Connecting to Chrome...
+    </div>
+  </header>
 
-      <div class="form-group hidden" id="if-else-group">
-        <label for="step-if-action" class="form-label">If Action <span style="font-weight: normal; color: var(--text-muted); font-size: 0.75rem;">(code when found)</span></label>
-        <textarea id="step-if-action" class="form-input" rows="2" placeholder="await page.locator('#element-a').click();" style="font-family: monospace; font-size: 0.85rem; resize: vertical; margin-bottom: 8px;"></textarea>
-        <label for="step-else-action" class="form-label">Else Action <span style="font-weight: normal; color: var(--text-muted); font-size: 0.75rem;">(fallback when NOT found)</span></label>
-        <textarea id="step-else-action" class="form-input" rows="2" placeholder="await page.locator('#element-b').click();" style="font-family: monospace; font-size: 0.85rem; resize: vertical;"></textarea>
+  <div class="main-content">
+    <div class="icon-container">
+      <svg xmlns="http://www.w3.org/.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M12 16v-4"></path>
+        <path d="M12 8h.01"></path>
+      </svg>
+    </div>
+    <h1>Real Chrome Browser Opened</h1>
+    <p>We've launched a fully functional Google Chrome window via Playwright to ensure 100% perfect capturing.</p>
+    
+    <div class="instructions">
+      <div class="instruction-step">
+        <div class="step-number">1</div>
+        <div class="step-text">Switch to the newly opened Google Chrome window.</div>
       </div>
-
-      <div class="form-group" id="optional-group">
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">
-          <input type="checkbox" id="step-optional" style="cursor: pointer; accent-color: var(--accent-primary);" />
-          ⛑️ Optional step <span style="font-size: 0.75rem; white-space: normal;">(skip safely if element not found)</span>
-        </label>
+      <div class="instruction-step">
+        <div class="step-number">2</div>
+        <div class="step-text">Hover over any element on the page. You will see a purple highlight and semantic data.</div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Description</label>
-        <input type="text" id="step-description" class="form-input" placeholder="e.g. Click Login Button">
-      </div>
-      <div style="display: flex; gap: 10px; margin-bottom: 16px;">
-        <button id="add-step-btn" class="btn" style="flex: 1;">Add Step to Test</button>
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; background: rgba(30,30,46,0.5); padding: 0 12px; border-radius: 6px; border: 1px solid var(--border-default);">
-          <div style="position: relative; width: 36px; height: 20px;">
-            <input type="checkbox" id="auto-record-toggle" style="opacity: 0; width: 0; height: 0; position: absolute;">
-            <div class="toggle-track" style="position: absolute; inset: 0; background: var(--bg-surface); border-radius: 20px; border: 1px solid var(--border-default); transition: 0.2s;"></div>
-            <div class="toggle-dot" style="position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--text-muted); transition: 0.2s;"></div>
-          </div>
-          <span style="font-size: 0.85rem; font-weight: 500;">Record</span>
-          <span id="record-indicator" class="hidden" style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%; box-shadow: 0 0 8px #ef4444;"></span>
-        </label>
-      </div>
-      <div id="status-message" style="margin-top: 16px; font-size: 0.9rem; color: #10b981; display: none; text-align: center; font-weight: 500;">
-        <span style="display:inline-block; margin-right:4px;">✓</span> Step added successfully!
+      <div class="instruction-step">
+        <div class="step-number">3</div>
+        <div class="step-text">Click an element to instantly generate a robust, mathematically proven Playwright selector back in the Step Builder.</div>
       </div>
     </div>
   </div>
-  <div class="main-area">
-    <div id="headful-fallback-ui" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; background: var(--bg-surface);">
-      <div class="browser-pulse" style="position: relative; width: 64px; height: 64px; margin-bottom: 24px;">
-        <div style="position: absolute; inset: 0; border: 3px solid var(--accent-primary); border-radius: 50%; animation: pulse 2s infinite ease-in-out;"></div>
-        <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 28px;">🌐</div>
-      </div>
-      <style>
-        @keyframes pulse {
-          0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7); }
-          70% { transform: scale(1); box-shadow: 0 0 0 20px rgba(139, 92, 246, 0); }
-          100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
-        }
-      </style>
-      <h2 style="margin: 0 0 12px 0; font-size: 1.5rem; font-weight: 600;">Live Capture Active</h2>
-      <p style="margin: 0; color: var(--text-muted); max-width: 400px; line-height: 1.5;">
-        A separate browser window has been opened. Interact with that window, and your clicks and typing will automatically appear here.
-      </p>
-      
-      <div id="connection-status" style="margin-top: 32px; padding: 12px 24px; background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; font-weight: 500; display: flex; align-items: center; gap: 8px;">
-        <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
-        Connected to Browser
-      </div>
-    </div>
-    <webview id="inspector-iframe" useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" style="width: 100%; height: 100%; border: none; background: white;"></webview>
-  </div>
-  <script type="module" src="./inspector.js"></script>
+
+  <script src="./inspector.js" type="module"></script>
 </body>
 </html>

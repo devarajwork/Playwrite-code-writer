@@ -110,6 +110,8 @@ async function extractElements(page: Page): Promise<ScannedElement[]> {
       const rawText = (el.textContent || '').trim();
       const text = rawText.length > 80 ? rawText.substring(0, 80) + '…' : rawText;
       const ariaLabel = el.getAttribute('aria-label') || '';
+      const altText = el.getAttribute('alt') || '';
+      const title = el.getAttribute('title') || '';
       const href = el.getAttribute('href') || '';
 
       // Build selectors
@@ -118,6 +120,8 @@ async function extractElements(page: Page): Promise<ScannedElement[]> {
         byRole: '',
         byLabel: '',
         byPlaceholder: '',
+        byAltText: '',
+        byTitle: '',
         byText: '',
         css: '',
         xpath: '',
@@ -182,6 +186,16 @@ async function extractElements(page: Page): Promise<ScannedElement[]> {
         selectors.byPlaceholder = `page.getByPlaceholder('${placeholder.replace(/'/g, "\\'")}')`;
       }
 
+      // AltText selector
+      if (altText) {
+        selectors.byAltText = `page.getByAltText('${altText.replace(/'/g, "\\'")}')`;
+      }
+
+      // Title selector
+      if (title) {
+        selectors.byTitle = `page.getByTitle('${title.replace(/'/g, "\\'")}')`;
+      }
+
       // Text selector
       if (text && text.length < 60) {
         selectors.byText = `page.getByText('${text.replace(/'/g, "\\'")}', { exact: true })`;
@@ -224,6 +238,8 @@ async function extractElements(page: Page): Promise<ScannedElement[]> {
         placeholder,
         text,
         ariaLabel,
+        altText,
+        title,
         href,
         selectors,
       });

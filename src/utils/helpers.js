@@ -72,7 +72,7 @@ export function highlightCode(code) {
 
       // Methods after dots: .click(), .fill(), etc.
       highlighted = highlighted.replace(
-        /\.(goto|click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|waitFor|waitForSelector|screenshot|scrollIntoViewIfNeeded|isVisible|toBeVisible|toContainText|toHaveValue|toHaveURL|getByRole|getByTestId|getByLabel|getByPlaceholder|getByText|locator|page)\b/g,
+        /\.(goto|click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|waitFor|waitForSelector|screenshot|scrollIntoViewIfNeeded|isVisible|toBeVisible|toContainText|toHaveValue|toHaveURL|getByRole|getByTestId|getByLabel|getByPlaceholder|getByAltText|getByTitle|getByText|locator|page)\b/g,
         '.<span class="prop">$1</span>'
       );
 
@@ -101,6 +101,8 @@ export function getBestSelector(selectors) {
   if (selectors.byTestId) return selectors.byTestId;
   if (selectors.byLabel) return selectors.byLabel;
   if (selectors.byPlaceholder) return selectors.byPlaceholder;
+  if (selectors.byAltText) return selectors.byAltText;
+  if (selectors.byTitle) return selectors.byTitle;
   if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
   
   // Prioritize chained parent-scoped selectors (e.g. page.getByRole(...).getByRole(...))
@@ -125,28 +127,62 @@ export function getBestSelector(selectors) {
 }
 
 /**
+ * Get a stability score for a Playwright selector.
+ * Returns { level: 'stable'|'fragile'|'brittle', emoji: '🟢'|'🟡'|'🔴', reason: string }
+ */
+export function getSelectorStability(selector) {
+  if (!selector) return { level: 'brittle', emoji: '🔴', reason: 'No selector' };
+
+  // 🟢 Stable — semantic, user-facing
+  if (selector.includes('getByTestId(')) return { level: 'stable', emoji: '🟢', reason: 'Test ID' };
+  if (selector.includes('getByLabel(')) return { level: 'stable', emoji: '🟢', reason: 'Label' };
+  if (selector.includes('getByPlaceholder(')) return { level: 'stable', emoji: '🟢', reason: 'Placeholder' };
+  if (selector.includes('getByRole(') && selector.includes('name:')) return { level: 'stable', emoji: '🟢', reason: 'Named role' };
+  if (selector.includes('getByAltText(')) return { level: 'stable', emoji: '🟢', reason: 'Alt text' };
+  if (selector.includes("getByText(") && selector.includes('exact: true')) return { level: 'stable', emoji: '🟢', reason: 'Exact text' };
+
+  // 🟡 Fragile — somewhat reliable but can break
+  if (selector.includes('getByText(')) return { level: 'fragile', emoji: '🟡', reason: 'Partial text' };
+  if (selector.includes('getByRole(')) return { level: 'fragile', emoji: '🟡', reason: 'Generic role' };
+  if (selector.includes('getByTitle(')) return { level: 'fragile', emoji: '🟡', reason: 'Title attr' };
+  if (selector.includes("locator('#") && !selector.includes('nth(')) return { level: 'fragile', emoji: '🟡', reason: 'ID selector' };
+  if (selector.includes('autoHealAction')) return { level: 'fragile', emoji: '🟡', reason: 'Auto-heal' };
+
+  // 🔴 Brittle — position-based or dynamically generated
+  if (selector.includes('.nth(')) return { level: 'brittle', emoji: '🔴', reason: 'nth position' };
+  if (selector.includes(":r")) return { level: 'brittle', emoji: '🔴', reason: 'Dynamic ID' };
+  if (/locator\('span'\)|locator\('div'\)|locator\('button'\)/.test(selector)) return { level: 'brittle', emoji: '🔴', reason: 'Generic tag' };
+  if (/\d{2,}/.test(selector) && selector.includes('nth')) return { level: 'brittle', emoji: '🔴', reason: 'High nth index' };
+
+  return { level: 'fragile', emoji: '🟡', reason: 'CSS path' };
+}
+
+/**
  * Step type display information
  */
 export const STEP_TYPE_INFO = {
-  navigate:        { emoji: '🌐', label: 'Navigate',        needsSelector: false, needsValue: true,  valuePlaceholder: 'https://web-dev.jugl.com/' },
-  click:           { emoji: '👆', label: 'Click',            needsSelector: true,  needsValue: false, valuePlaceholder: '' },
-  dblclick:        { emoji: '👆', label: 'Double Click',     needsSelector: true,  needsValue: false, valuePlaceholder: '' },
-  fill:            { emoji: '✏️', label: 'Fill',             needsSelector: true,  needsValue: true,  valuePlaceholder: 'Text to type...' },
-  select:          { emoji: '📋', label: 'Select',           needsSelector: true,  needsValue: true,  valuePlaceholder: 'Option value...' },
-  check:           { emoji: '☑️', label: 'Check',            needsSelector: true,  needsValue: false, valuePlaceholder: '' },
-  uncheck:         { emoji: '⬜', label: 'Uncheck',          needsSelector: true,  needsValue: false, valuePlaceholder: '' },
-  upload:          { emoji: '📁', label: 'Upload File',      needsSelector: true,  needsValue: true,  valuePlaceholder: 'path/to/file.pdf' },
-  hover:           { emoji: '🖱️', label: 'Hover',            needsSelector: true,  needsValue: false, valuePlaceholder: '' },
-  press:           { emoji: '⌨️', label: 'Press Key',        needsSelector: true,  needsValue: true,  valuePlaceholder: 'Enter, Tab, Escape...' },
-  scrollTo:        { emoji: '📜', label: 'Scroll To',        needsSelector: true,  needsValue: false, valuePlaceholder: '' },
-  waitForSelector: { emoji: '⏳', label: 'Wait For',         needsSelector: true,  needsValue: true,  valuePlaceholder: 'Timeout in ms (optional)' },
-  waitForTimeout:  { emoji: '⏱️', label: 'Wait (Time)',      needsSelector: false, needsValue: true,  valuePlaceholder: 'Timeout in ms (e.g. 2000)' },
-  assertVisible:   { emoji: '👁️', label: 'Assert Visible',   needsSelector: true,  needsValue: false, valuePlaceholder: '' },
-  assertText:      { emoji: '📝', label: 'Assert Text',      needsSelector: true,  needsValue: true,  valuePlaceholder: 'Expected text...' },
-  assertValue:     { emoji: '🔢', label: 'Assert Value',     needsSelector: true,  needsValue: true,  valuePlaceholder: 'Expected value...' },
-  assertUrl:       { emoji: '🔗', label: 'Assert URL',       needsSelector: false, needsValue: true,  valuePlaceholder: 'Expected URL or pattern...' },
-  screenshot:      { emoji: '📸', label: 'Screenshot',       needsSelector: false, needsValue: true,  valuePlaceholder: 'filename.png' },
-  ifElse:          { emoji: '🔀', label: 'If/Else',          needsSelector: true,  needsValue: true,  valuePlaceholder: 'Fallback selector (else branch)' },
+  navigate:        { emoji: '🌐', label: 'Navigate',           needsSelector: false, needsValue: true,  valuePlaceholder: 'https://web-dev.jugl.com/' },
+  click:           { emoji: '👆', label: 'Click',               needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  dblclick:        { emoji: '👆', label: 'Double Click',        needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  fill:            { emoji: '✏️', label: 'Fill',                needsSelector: true,  needsValue: true,  valuePlaceholder: 'Text to type...' },
+  select:          { emoji: '📋', label: 'Select',              needsSelector: true,  needsValue: true,  valuePlaceholder: 'Option value...' },
+  check:           { emoji: '☑️', label: 'Check',               needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  uncheck:         { emoji: '⬜', label: 'Uncheck',             needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  upload:          { emoji: '📁', label: 'Upload File',         needsSelector: true,  needsValue: true,  valuePlaceholder: 'path/to/file.pdf' },
+  hover:           { emoji: '🖱️', label: 'Hover',               needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  press:           { emoji: '⌨️', label: 'Press Key',           needsSelector: true,  needsValue: true,  valuePlaceholder: 'Enter, Tab, Escape...' },
+  scrollTo:        { emoji: '📜', label: 'Scroll To',           needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  waitForSelector: { emoji: '⏳', label: 'Wait For',            needsSelector: true,  needsValue: true,  valuePlaceholder: 'Timeout in ms (optional)' },
+  waitForTimeout:  { emoji: '⏱️', label: 'Wait (Time)',         needsSelector: false, needsValue: true,  valuePlaceholder: 'Timeout in ms (e.g. 2000)' },
+  waitForResponse: { emoji: '🌐', label: 'Wait for API',        needsSelector: false, needsValue: true,  valuePlaceholder: '**/api/endpoint or URL pattern' },
+  assertVisible:   { emoji: '👁️', label: 'Assert Visible',      needsSelector: true,  needsValue: false, valuePlaceholder: '' },
+  assertText:      { emoji: '📝', label: 'Assert Text',         needsSelector: true,  needsValue: true,  valuePlaceholder: 'Expected text...' },
+  assertValue:     { emoji: '🔢', label: 'Assert Value',        needsSelector: true,  needsValue: true,  valuePlaceholder: 'Expected value...' },
+  assertUrl:       { emoji: '🔗', label: 'Assert URL',          needsSelector: false, needsValue: true,  valuePlaceholder: 'Expected URL or pattern...' },
+  screenshot:      { emoji: '📸', label: 'Screenshot',          needsSelector: false, needsValue: true,  valuePlaceholder: 'filename.png' },
+  visualSnapshot:  { emoji: '🖼️', label: 'Visual Snapshot',     needsSelector: false, needsValue: true,  valuePlaceholder: 'snapshot-name.png' },
+  sectionHeader:   { emoji: '📌', label: 'Section Header',      needsSelector: false, needsValue: true,  valuePlaceholder: 'e.g. Login Flow, Dashboard...' },
+  ifElse:          { emoji: '🔀', label: 'If/Else',             needsSelector: true,  needsValue: true,  valuePlaceholder: 'Fallback selector (else branch)' },
 };
 
 /**
@@ -463,13 +499,13 @@ export function parsePlaywrightScript(code) {
 
 function extractLocator(line) {
   // Use greedy .* up to the action method call to handle nested parentheses
-  const m = line.match(/(page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))(?=\.(?:click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|scrollIntoViewIfNeeded|waitFor|setInputFiles))/);
+  const m = line.match(/(page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByAltText|getByTitle|getByText)\(.*\))(?=\.(?:click|dblclick|fill|pressSequentially|selectOption|check|uncheck|hover|press|scrollIntoViewIfNeeded|waitFor|setInputFiles))/);
   return m ? m[1] : '';
 }
 
 function extractLocatorFromExpect(line) {
   // Use greedy .* up to the closing parenthesis of expect()
-  const m = line.match(/expect\((page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByText)\(.*\))\)/);
+  const m = line.match(/expect\((page\.(?:locator|getByTestId|getByRole|getByLabel|getByPlaceholder|getByAltText|getByTitle|getByText)\(.*\))\)/);
   return m ? m[1] : '';
 }
 

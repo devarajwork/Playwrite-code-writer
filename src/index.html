@@ -139,11 +139,20 @@
           <p class="empty-state__subtext">Add steps below or pick elements from the scanner</p>
         </div>
       </div>
-      <div class="panel__footer">
-        <button id="add-step-btn" class="btn btn--add-step">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Step
-        </button>
+      <div class="panel__footer" style="flex-direction:column; gap:8px; padding:12px;">
+        <!-- Natural Language Input (#7) -->
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" id="nl-step-input" class="form-input" placeholder="✨ Type a step: 'click Sign In', 'fill email with test@...' , '--- Login Flow ---'" style="flex:1; font-size:var(--text-xs);" />
+          <button id="nl-add-btn" class="btn btn--primary btn--small" title="Add step from natural language">
+            ✨ Add
+          </button>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button id="add-step-btn" class="btn btn--add-step" style="flex:1;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Step Manually
+          </button>
+        </div>
       </div>
     </section>
     <div class="resizer" id="resizer-1"></div>
@@ -184,16 +193,22 @@
     </section>
     <div class="resizer" id="resizer-2"></div>
 
-    <!-- RIGHT PANEL: Framework Manager -->
+    <!-- RIGHT PANEL: Framework & History -->
     <section class="panel panel--framework" id="framework-panel">
       <div class="panel__header" style="display:flex; justify-content:space-between; align-items:center;">
-        <h2 class="panel__title">
-          🎭 Framework Manager
-          <span id="fw-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text-muted);display:inline-block;margin-left:8px;"></span>
-        </h2>
+        <div style="display:flex; gap:16px;">
+          <h2 class="panel__title" id="tab-framework" style="cursor:pointer; border-bottom:2px solid var(--color-primary);">
+            🎭 Framework
+            <span id="fw-status-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);display:inline-block;margin-left:4px;"></span>
+          </h2>
+          <h2 class="panel__title" id="tab-history" style="cursor:pointer; color:var(--text-muted); border-bottom:2px solid transparent;">
+            📈 CI History
+          </h2>
+        </div>
       </div>
-      <div class="panel__content" style="padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-5);">
-
+      
+      <!-- Framework Manager Content -->
+      <div class="panel__content" id="content-framework" style="padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-5);">
         <!-- Section 1: Connection status -->
         <div class="fw-section">
           <div class="fw-section__title">🔌 Framework Project</div>
@@ -226,7 +241,21 @@
             Open Framework Runner
           </button>
         </div>
+      </div>
 
+      <!-- CI History Content -->
+      <div class="panel__content hidden" id="content-history" style="padding:var(--space-4);flex-direction:column;gap:var(--space-5);">
+        <div style="display:flex; gap:8px; margin-bottom: 16px;">
+          <input type="text" id="github-repo-input" class="form-input" placeholder="owner/repo (e.g. microsoft/playwright)" style="flex:1;" />
+          <button id="fetch-history-btn" class="btn btn--primary btn--small">Fetch</button>
+        </div>
+        <div id="history-loading" class="hidden text-center text-muted" style="margin: 20px 0;">Loading CI history...</div>
+        <div id="history-results" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1;">
+          <div class="empty-state">
+            <span style="font-size:2rem;opacity:0.5;margin-bottom:8px;">📊</span>
+            <p>Enter a repository to view GitHub Actions run history</p>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -276,13 +305,20 @@
         </div>
 
         <div class="form-group" id="selector-group">
-          <label for="step-selector" class="form-label">Selector</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="step-selector" class="form-label" style="margin-bottom: 0;">Selector</label>
+            <button type="button" id="verifyLocatorBtn" style="font-size: 11px; color: var(--accent-primary); background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
+              Verify
+            </button>
+          </div>
           <input type="text" id="step-selector" class="form-input" placeholder="page.getByRole('button', { name: 'Submit' })" />
           <div id="selector-choices-wrapper" class="hidden" style="margin-top: 8px; display: flex; align-items: center; gap: var(--space-2);">
             <label for="selector-choices-dropdown" class="form-label" style="font-size: var(--text-xs); color: var(--text-muted); margin-bottom: 0; white-space: nowrap;">Selector Type:</label>
             <select id="selector-choices-dropdown" class="form-select" style="padding: 4px var(--space-3); font-size: var(--text-xs); flex: 1; font-family: var(--font-mono); height: 32px; min-height: 32px;"></select>
           </div>
           <span class="form-hint">Use Playwright selectors or pick from scanned elements</span>
+          <div id="step-status" style="display: none; margin-top: 8px; font-size: 11px;"></div>
         </div>
 
         <div class="form-group" id="value-group">
@@ -317,7 +353,7 @@
         <div class="form-group" id="optional-group">
           <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--text-sm); color: var(--text-secondary);">
             <input type="checkbox" id="step-optional" style="cursor: pointer; accent-color: var(--accent-primary);" />
-            ⛑️ Optional step <span class="form-hint" style="display:inline; margin-left:4px;">(checks isVisible() first — skips safely if element not found)</span>
+            ⛑️ If optional step <span class="form-hint" style="display:inline; margin-left:4px;">(checks isVisible() first — skips safely if element not found)</span>
           </label>
         </div>
 

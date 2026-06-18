@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { resolveLocator } from './run.js';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
@@ -30,260 +33,7 @@ router.get('/stream', (req, res) => {
   });
 });
 
-const INJECT_SCRIPT = `
-(function() {
-  function notifyParent(data) {
-    console.log("NOTIFYING BUILDER:", data);
-    if (window.notifyBuilder) {
-      window.notifyBuilder(data).catch(e => console.error("Builder notify error:", e));
-    } else {
-      console.error("window.notifyBuilder is not defined!");
-    }
-  }
-
-  // Inject styles for highlight
-  const style = document.createElement('style');
-  style.textContent = \`
-    .pw-visual-highlight {
-      outline: 2px solid #8b5cf6 !important;
-      outline-offset: -2px !important;
-      background: rgba(139, 92, 246, 0.1) !important;
-      transition: all 0.1s ease !important;
-      cursor: crosshair !important;
-    }
-    .pw-visual-tooltip {
-      position: absolute !important;
-      background: rgba(30, 30, 46, 0.95) !important;
-      backdrop-filter: blur(4px) !important;
-      color: #f8fafc !important;
-      padding: 6px 10px !important;
-      border-radius: 8px !important;
-      font-family: 'Inter', sans-serif !important;
-      font-size: 11px !important;
-      font-weight: 500 !important;
-      pointer-events: none !important;
-      z-index: 2147483647 !important;
-      border: 1px solid rgba(99, 115, 164, 0.3) !important;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.5) !important;
-      display: flex !important;
-      align-items: center !important;
-      gap: 6px !important;
-    }
-  \`;
-  document.head.appendChild(style);
-
-  let tooltip = null;
-  let activeElement = null;
-
-  function createTooltip() {
-    if (tooltip) return;
-    tooltip = document.createElement('div');
-    tooltip.className = 'pw-visual-tooltip';
-    tooltip.style.display = 'none';
-    document.body.appendChild(tooltip);
-  }
-
-  function getBestSelector(selectors) {
-    if (selectors.byTestId) return selectors.byTestId;
-    if (selectors.byRole && selectors.byRole.includes('name:')) return selectors.byRole;
-    if (selectors.byLabel) return selectors.byLabel;
-    if (selectors.byPlaceholder) return selectors.byPlaceholder;
-    if (selectors.byText) return selectors.byText;
-    if (selectors.byId) return selectors.byId;
-    if (selectors.byRole) return selectors.byRole;
-    return selectors.css || '';
-  }
-
-  function extractElementData(el) {
-    const tagName = el.tagName.toLowerCase();
-    
-    // Filter dynamic IDs (e.g. #headlessui-listbox-button-_r_11m_, #radix-123, generated hashes)
-    let id = el.id || '';
-    if (id && /headlessui|radix|mui|-[0-9]{4,}|^[a-f0-9]{8,}/i.test(id)) {
-      id = '';
-    }
-
-    const name = el.getAttribute('name') || '';
-    
-    // Filter utility classes and complex Tailwind arbitrary values
-    const className = el.className && typeof el.className === 'string'
-      ? el.className.split(' ').filter(c => 
-          c.length > 0 && 
-          !c.includes('pw-visual') &&
-          !c.includes(':') && 
-          !c.includes('[') &&
-          !/^(flex|grid|block|absolute|relative|w-|h-|p-|m-|text-|bg-|border-)/.test(c)
-        ).slice(0, 2).join(' ')
-      : '';
-
-    // Clean text matching
-    let text = (el.textContent || '').replace(/[\\n\\r\\t ]+/g, ' ').trim();
-    const placeholder = el.getAttribute('placeholder') || '';
-    const ariaLabel = el.getAttribute('aria-label') || '';
-    const dataTestId = el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-cy') || '';
-    const role = el.getAttribute('role') || '';
-    const type = el.type || el.getAttribute('type') || '';
-
-    // Construct selectors matching codeGenerator logic
-    const selectors = {
-      byTestId: dataTestId ? "page.getByTestId('" + dataTestId + "')" : "",
-      byId: id ? "page.locator('#" + id + "')" : "",
-      byRole: "",
-      byLabel: ariaLabel ? "page.getByLabel('" + ariaLabel.replace(/'/g, "\\\\'") + "')" : "",
-      byPlaceholder: placeholder ? "page.getByPlaceholder('" + placeholder.replace(/'/g, "\\\\'") + "')" : "",
-      byText: "",
-      css: "",
-      xpath: ""
-    };
-
-    if (text && text.length > 0) {
-      if (text.length > 30) {
-        selectors.byText = "page.getByText('" + text.substring(0, 30).replace(/'/g, "\\\\'") + "', { exact: false })";
-      } else {
-        selectors.byText = "page.getByText('" + text.replace(/'/g, "\\\\'") + "', { exact: true })";
-      }
-    }
-
-    const implicitRoles = {
-      button: 'button',
-      a: 'link',
-      input: type === 'checkbox' ? 'checkbox' : type === 'radio' ? 'radio' : 'textbox',
-      select: 'combobox',
-      textarea: 'textbox'
-    };
-    const effectiveRole = role || implicitRoles[tagName];
-    if (effectiveRole) {
-      const nameAttr = ariaLabel || (text.length <= 30 ? text : text.substring(0, 30));
-      if (nameAttr) {
-        selectors.byRole = "page.getByRole('" + effectiveRole + "', { name: '" + nameAttr.replace(/'/g, "\\\\'") + "' })";
-      } else {
-        selectors.byRole = "page.getByRole('" + effectiveRole + "')";
-      }
-    }
-
-    // Build CSS locator statement
-    let css = tagName;
-    if (id) {
-      css = '#' + id;
-    } else if (name) {
-      css = tagName + '[name="' + name + '"]';
-    } else if (dataTestId) {
-      css = '[data-testid="' + dataTestId + '"]';
-    } else if (className) {
-      css = tagName + '.' + className.split(' ')[0];
-    }
-    selectors.css = "page.locator('" + css + "')";
-
-    // Build XPath locator statement
-    let xpath = '//' + tagName;
-    if (id) {
-      xpath = '//*[@id="' + id + '"]';
-    } else if (dataTestId) {
-      xpath = '//*[@data-testid="' + dataTestId + '"]';
-    } else if (name) {
-      xpath = '//' + tagName + '[@name="' + name + '"]';
-    } else if (text && text.length < 40) {
-      xpath = '//' + tagName + '[contains(text(),"' + text.substring(0, 30).replace(/'/g, "\\\\'") + '")]';
-    }
-    selectors.xpath = "page.locator('" + xpath + "')";
-
-    const bestSelector = getBestSelector(selectors);
-    return { tagName, id, bestSelector, text, placeholder, selectors, type };
-  }
-
-  // Inspect mouse movements
-  document.addEventListener('mouseover', function(e) {
-    const el = e.target;
-    if (!el || el === document.body || el === document.documentElement || el.closest('.pw-visual-tooltip')) {
-      return;
-    }
-
-    if (activeElement) {
-      activeElement.classList.remove('pw-visual-highlight');
-    }
-
-    activeElement = el;
-    el.classList.add('pw-visual-highlight');
-
-    // Update and position tooltip
-    createTooltip();
-    const tagName = el.tagName.toLowerCase();
-    const idText = el.id ? '#' + el.id : '';
-    const textSnippet = (el.textContent || '').trim().substring(0, 15);
-    tooltip.innerHTML = '<span style="color: #a78bfa">&lt;' + tagName + idText + '&gt;</span>' + (textSnippet ? ' • "' + textSnippet + '"' : '');
-    tooltip.style.display = 'flex';
-
-    const rect = el.getBoundingClientRect();
-    let left = rect.left;
-    if (left + 200 > window.innerWidth) {
-      left = window.innerWidth - 220;
-    }
-    let top = rect.bottom + window.scrollY + 8;
-    if (rect.bottom + 50 > window.innerHeight) {
-      top = rect.top + window.scrollY - 32;
-    }
-
-    tooltip.style.left = Math.max(8, left) + 'px';
-    tooltip.style.top = Math.max(8, top) + 'px';
-  }, true);
-
-  document.addEventListener('mouseout', function(e) {
-    if (activeElement === e.target) {
-      e.target.classList.remove('pw-visual-highlight');
-      activeElement = null;
-    }
-    if (tooltip) {
-      tooltip.style.display = 'none';
-    }
-  }, true);
-
-  // Catch clicks naturally
-  document.addEventListener('click', function(e) {
-    const el = e.target;
-    if (!el || el === document.body || el === document.documentElement) return;
-
-    const elementData = extractElementData(el);
-
-    notifyParent({
-      type: 'ELEMENT_CLICKED',
-      element: elementData
-    });
-  }, true);
-
-  // Catch input/select updates on blur/change
-  ['blur', 'change'].forEach(function(eventType) {
-    document.addEventListener(eventType, function(e) {
-      const el = e.target;
-      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT')) return;
-
-      const value = el.value;
-      if (!value && el.type !== 'file') return;
-
-      const elementData = extractElementData(el);
-      notifyParent({
-        type: 'INPUT_CHANGED',
-        element: {
-          ...elementData,
-          value: value
-        }
-      });
-    }, true);
-  });
-
-  // Periodically track URL changes
-  let lastUrl = window.location.href;
-  setInterval(function() {
-    if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      notifyParent({
-        type: 'URL_CHANGED',
-        url: lastUrl
-      });
-    }
-  }, 500);
-
-})();
-`;
+let isLaunching = false;
 
 router.post('/start', async (req, res) => {
   const { url } = req.body;
@@ -293,9 +43,21 @@ router.post('/start', async (req, res) => {
     return;
   }
 
+  if (isLaunching) {
+    res.status(429).json({ error: 'Already launching inspector' });
+    return;
+  }
+  isLaunching = true;
+
   try {
     if (inspectorBrowser) {
-      await inspectorBrowser.close();
+      try {
+        await inspectorBrowser.close();
+      } catch (e) {
+        console.warn('Failed to close previous browser:', e);
+      }
+      inspectorBrowser = null;
+      inspectorContext = null;
     }
     
     // Launch headful browser
@@ -315,9 +77,18 @@ router.post('/start', async (req, res) => {
       broadcast(data);
     });
 
+    // Load the advanced semantic engine dynamically
+    let injectScriptPath = path.join(process.cwd(), 'public', 'inspector-inject.js');
+    let injectScriptContent = '';
+    try {
+      injectScriptContent = fs.readFileSync(injectScriptPath, 'utf-8');
+    } catch(e) {
+      console.error('Failed to load inspector-inject.js. Check path:', injectScriptPath, e);
+    }
+
     // Add init script
     await inspectorContext.addInitScript(`
-      ${INJECT_SCRIPT}
+      ${injectScriptContent}
     `);
 
     const page = await inspectorContext.newPage();
@@ -332,7 +103,30 @@ router.post('/start', async (req, res) => {
   } catch (err: any) {
     console.error('Inspector launch error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    isLaunching = false;
   }
+});
+
+router.post('/verify', async (req, res) => {
+    const { selector } = req.body;
+    if (!inspectorContext) {
+        return res.status(400).json({ error: 'Inspector is not running' });
+    }
+
+    try {
+        const pages = inspectorContext.pages();
+        if (pages.length > 0) {
+            await pages[0].evaluate((sel) => {
+                if ((window as any).highlightPlaywrightSelector) {
+                    (window as any).highlightPlaywrightSelector(sel);
+                }
+            }, selector);
+        }
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 router.post('/stop', async (req, res) => {

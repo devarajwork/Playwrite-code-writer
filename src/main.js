@@ -9,6 +9,7 @@ import {
   escapeHtml,
   highlightCode,
   getBestSelector,
+  getSelectorStability,
   STEP_TYPE_INFO,
   parsePlaywrightScript,
   customConfirm,
@@ -140,6 +141,12 @@ const dom = {
   openCancel: document.getElementById('open-cancel'),
   openConfirm: document.getElementById('open-confirm'),
   openFileSelect: document.getElementById('open-file-select'),
+  stepOptional: document.getElementById('step-optional'),
+  ifElseGroup: document.getElementById('if-else-group'),
+  stepIfAction: document.getElementById('step-if-action'),
+  stepElseAction: document.getElementById('step-else-action'),
+  verifyLocatorBtn: document.getElementById('verifyLocatorBtn'),
+  stepStatus: document.getElementById('step-status'),
   // Live Runner
   runBtn: document.getElementById('run-btn'),
   runnerModal: document.getElementById('runner-modal'),
@@ -158,15 +165,14 @@ const dom = {
   runnerScreenshotFrame: document.getElementById('runner-screenshot-frame'),
   runnerScreenshotImg: document.getElementById('runner-screenshot-img'),
   // Settings Modal
-  settingsBtn: document.getElementById('settings-btn'),
-  credentialsBtn: document.getElementById('credentials-btn'),
-  credentialsSection: document.getElementById('credentials-section'),
   settingsModal: document.getElementById('settings-modal'),
   settingsClose: document.getElementById('settings-close'),
   settingsCancel: document.getElementById('settings-cancel'),
   settingsSave: document.getElementById('settings-save'),
   frameworkPathInput: document.getElementById('framework-path-input'),
   frameworkPathBrowseBtn: document.getElementById('framework-path-browse-btn'),
+  credentialsBtn: document.getElementById('credentials-btn'),
+  credentialsSection: document.getElementById('credentials-section'),
   envVarsContainer: document.getElementById('env-vars-container'),
   // Framework Run Modal
   fwRunModal: document.getElementById('fw-run-modal'),
@@ -246,7 +252,170 @@ function bindEvents() {
     openModal();
   });
 
+  // Natural Language Step Input (#7)
+  const nlInput = document.getElementById('nl-step-input');
+  const nlAddBtn = document.getElementById('nl-add-btn');
+  const handleNlAdd = () => {
+    const text = nlInput.value.trim();
+    if (!text) return;
+    const parsed = parseNaturalLanguageStep(text);
+    if (parsed.type === 'sectionHeader' || parsed.type === 'navigate' || parsed.type === 'waitForTimeout' || parsed.type === 'waitForResponse' || parsed.type === 'assertUrl') {
+      // Can add directly without selector
+      saveHistory();
+      state.steps.push({ id: generateId(), type: parsed.type, selector: parsed.selector, value: parsed.value, fallbacks: [], description: parsed.description, order: state.steps.length });
+      renderSteps();
+      autoGenerate();
+      showToast(`${STEP_TYPE_INFO[parsed.type]?.emoji || '✨'} Step added: ${parsed.description}`, 'success');
+      nlInput.value = '';
+    } else {
+      // Needs selector — pre-fill modal
+      state.insertIndex = null;
+      openModal();
+      if (dom.stepType) { dom.stepType.value = parsed.type; updateStepTypeFields(); }
+      if (dom.stepDescription) dom.stepDescription.value = parsed.description;
+      if (dom.stepValue && parsed.value) dom.stepValue.value = parsed.value;
+      nlInput.value = '';
+    }
+  };
+  if (nlAddBtn) nlAddBtn.addEventListener('click', handleNlAdd);
+  if (nlInput) nlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleNlAdd(); });
 
+
+  if (dom.verifyLocatorBtn) {
+    dom.verifyLocatorBtn.addEventListener('click', async () => {
+      const selector = dom.stepSelector.value;
+      if (!selector) return;
+      
+      const originalText = dom.verifyLocatorBtn.innerHTML;
+      dom.verifyLocatorBtn.innerHTML = 'Verifying...';
+      dom.verifyLocatorBtn.disabled = true;
+
+      try {
+        const res = await fetch('http://localhost:3001/api/inspector/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selector })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok && data.success) {
+          dom.stepStatus.style.display = 'block';
+          dom.stepStatus.innerHTML = '✓ Element highlighted in Chrome';
+          dom.stepStatus.className = 'text-xs mt-2 font-medium text-emerald-500';
+          setTimeout(() => { dom.stepStatus.style.display = 'none'; }, 3000);
+        } else {
+          dom.stepStatus.style.display = 'block';
+          dom.stepStatus.innerHTML = '❌ ' + (data.error || 'Failed to verify locator');
+          dom.stepStatus.className = 'text-xs mt-2 font-medium text-red-500';
+        }
+      } catch (err) {
+        dom.stepStatus.style.display = 'block';
+        dom.stepStatus.innerHTML = '❌ Error contacting inspector backend';
+        dom.stepStatus.className = 'text-xs mt-2 font-medium text-red-500';
+        console.error(err);
+      } finally {
+        dom.verifyLocatorBtn.innerHTML = originalText;
+        dom.verifyLocatorBtn.disabled = false;
+      }
+    });
+  }
+
+  // CI History Tabs & Fetch (#9)
+  const tabFw = document.getElementById('tab-framework');
+  const tabHist = document.getElementById('tab-history');
+  const contentFw = document.getElementById('content-framework');
+  const contentHist = document.getElementById('content-history');
+
+  if (tabFw && tabHist) {
+    tabFw.addEventListener('click', () => {
+      tabFw.style.borderBottomColor = 'var(--color-primary)';
+      tabFw.style.color = 'var(--text-primary)';
+      tabHist.style.borderBottomColor = 'transparent';
+      tabHist.style.color = 'var(--text-muted)';
+      contentFw.classList.remove('hidden');
+      contentFw.style.display = 'flex';
+      contentHist.classList.add('hidden');
+      contentHist.style.display = 'none';
+    });
+    tabHist.addEventListener('click', () => {
+      tabHist.style.borderBottomColor = 'var(--color-primary)';
+      tabHist.style.color = 'var(--text-primary)';
+      tabFw.style.borderBottomColor = 'transparent';
+      tabFw.style.color = 'var(--text-muted)';
+      contentHist.classList.remove('hidden');
+      contentHist.style.display = 'flex';
+      contentFw.classList.add('hidden');
+      contentFw.style.display = 'none';
+    });
+  }
+
+  const fetchHistBtn = document.getElementById('fetch-history-btn');
+  const repoInput = document.getElementById('github-repo-input');
+  if (fetchHistBtn) {
+    fetchHistBtn.addEventListener('click', async () => {
+      const repo = repoInput.value.trim();
+      if (!repo) {
+        showToast('Please enter a repo', 'error');
+        return;
+      }
+      
+      document.getElementById('history-loading').classList.remove('hidden');
+      const resultsDiv = document.getElementById('history-results');
+      resultsDiv.innerHTML = '';
+
+      try {
+        const res = await fetch(`http://localhost:3001/api/github-runs?repo=${encodeURIComponent(repo)}`);
+        const data = await res.json();
+        
+        document.getElementById('history-loading').classList.add('hidden');
+
+        if (!res.ok) {
+          resultsDiv.innerHTML = `<div class="empty-state" style="color:#ef4444;">❌ ${escapeHtml(data.error || 'Failed to fetch')}</div>`;
+          return;
+        }
+
+        if (!data.runs || data.runs.length === 0) {
+          resultsDiv.innerHTML = `<div class="empty-state">No workflow runs found.</div>`;
+          return;
+        }
+
+        data.runs.forEach(run => {
+          const runEl = document.createElement('div');
+          runEl.className = 'step-card';
+          runEl.style.padding = '12px';
+          runEl.style.display = 'flex';
+          runEl.style.flexDirection = 'column';
+          runEl.style.gap = '6px';
+          runEl.style.cursor = 'default';
+
+          const isSuccess = run.conclusion === 'success';
+          const isFailure = run.conclusion === 'failure';
+          const icon = isSuccess ? '✅' : isFailure ? '❌' : '⏳';
+
+          runEl.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-weight:600; font-size:13px; color: ${isSuccess ? 'var(--color-success)' : isFailure ? 'var(--color-danger)' : 'var(--text-primary)'}">${icon} ${escapeHtml(run.name)}</span>
+              <a href="${run.html_url}" target="_blank" style="color:var(--color-primary); font-size:12px; text-decoration:none; font-weight:600;">#${run.run_number} ↗</a>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between;">
+              <span>By ${escapeHtml(run.actor || 'unknown')}</span>
+              <span>${new Date(run.created_at).toLocaleString()}</span>
+            </div>
+          `;
+          resultsDiv.appendChild(runEl);
+        });
+      } catch (err) {
+        document.getElementById('history-loading').classList.add('hidden');
+        resultsDiv.innerHTML = `<div class="empty-state" style="color:#ef4444;">❌ Error: ${err.message}</div>`;
+      }
+    });
+    
+    // Allow enter key
+    repoInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') fetchHistBtn.click();
+    });
+  }
 
   // Code Panel
   dom.copyCodeBtn.addEventListener('click', handleCopyCode);
@@ -460,6 +629,20 @@ function bindEvents() {
 
   checkFrameworkConnection();
 
+  // Step Builder
+  dom.addStepBtn.addEventListener('click', () => {
+    openModal();
+  });
+
+  if (dom.selectorChoicesDropdown) {
+    dom.selectorChoicesDropdown.addEventListener('change', (e) => {
+      const selectedValue = e.target.value;
+      if (selectedValue) {
+        dom.stepSelector.value = selectedValue;
+      }
+    });
+  }
+
   // Framework panel
   dom.fwRunAllBtn.addEventListener('click', () => runFrameworkTest('all'));
   dom.fwRunSetupBtn.addEventListener('click', () => runFrameworkTest('setup'));
@@ -527,6 +710,8 @@ function bindEvents() {
           selector: manualStep.selector,
           value: manualStep.value || '',
           description: manualStep.description || `Action on ${manualStep.selector}`,
+          optional: manualStep.optional || false,
+          fallbacks: manualStep.fallbacks || [],
           order: state.steps.length,
         };
         
@@ -537,38 +722,98 @@ function bindEvents() {
         autoGenerate();
       } else if (e.data.type === 'ELEMENT_CLICKED' || e.data.type === 'INPUT_CHANGED') {
         if (e.data.type === 'ELEMENT_CLICKED' && e.data.element.type && e.data.element.type.toLowerCase() === 'file') {
-          // Ignore clicks on file inputs, wait for the INPUT_CHANGED event instead
+          return;
+        }
+
+        // Re-heal mode: update an existing failed step's selector instead of creating new step
+        if (state._rehealTargetId) {
+          const healStep = state.steps.find(s => s.id === state._rehealTargetId);
+          if (healStep && e.data.element.bestSelector) {
+            saveHistory();
+            healStep.selector = e.data.element.bestSelector;
+            healStep.fallbacks = e.data.element.fallbacks || [];
+            healStep._healNeeded = false;
+            state._rehealTargetId = null;
+            renderSteps();
+            autoGenerate();
+            showToast('✅ Selector re-healed successfully!', 'success');
+          }
           return;
         }
         
-        // Only trigger auto-add if the message comes from the embedded iframe or older behavior, 
-        // but now the inspector tab handles these and sends ADD_STEP_MANUAL instead.
-        // We'll keep this just in case they are still generated directly.
-        let { bestSelector, tagName, value } = e.data.element;
-        const typeMap = {
-          button: 'click', input: 'fill', select: 'select',
-          textarea: 'fill', a: 'click', h1: 'assertText',
-          h2: 'assertText', h3: 'assertText', h4: 'assertText',
-          h5: 'assertText', h6: 'assertText',
-        };
-        let type = typeMap[tagName] || 'click';
-        if (value && type === 'click') type = 'fill';
+        let { bestSelector, tagName, value, fallbacks } = e.data.element;
+        const elType = (e.data.element.type || '').toLowerCase();
         
+        let type = 'click';
         let processedValue = value || '';
-        if (e.data.element.type && e.data.element.type.toLowerCase() === 'file') {
-          type = 'upload';
-          bestSelector = "page.locator('input[type=\"file\"]')";
-          if (processedValue) processedValue = processedValue.replace(/C:\\fakepath\\/i, 'assets/');
+
+        if (tagName === 'select') {
+          type = 'select';
+        } else if (tagName === 'textarea' || e.data.element.isContentEditable) {
+          type = 'fill';
+        } else if (tagName === 'input') {
+          if (elType === 'checkbox' || elType === 'radio') {
+            type = 'check'; // Playwright's .check() handles both
+            processedValue = ''; // check() doesn't take a value
+          } else if (elType === 'file') {
+            type = 'upload';
+            bestSelector = "page.locator('input[type=\"file\"]')";
+            if (processedValue) processedValue = processedValue.replace(/C:\\fakepath\\/i, 'assets/');
+          } else if (elType === 'submit' || elType === 'button' || elType === 'reset') {
+            type = 'click';
+            processedValue = '';
+          } else {
+            type = 'fill'; // text, password, email, etc.
+          }
+        } else if (tagName === 'button' || tagName === 'a') {
+          type = 'click';
+        } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
+          type = 'assertText';
+        } else if (value && type === 'click') {
+          type = 'fill'; // Fallback for weird custom inputs
         }
         
         const info = STEP_TYPE_INFO[type] || { emoji: '❓', label: type };
-        
+
+        // Rich AI-like human-readable description
+        const el = e.data.element;
+        const elText = (el.text || '').trim().substring(0, 40);
+        const elLabel = el.ariaLabel || el.labelText || el.placeholder || '';
+        const elName = elLabel || elText || tagName;
+        let richDescription = '';
+        if (type === 'navigate') {
+          richDescription = `Navigate to ${processedValue}`;
+        } else if (type === 'fill') {
+          richDescription = elName 
+            ? `Fill the "${elName}" field with "${processedValue}"`
+            : `Fill "${processedValue}" into ${tagName}`;
+        } else if (type === 'check') {
+          richDescription = elName 
+            ? `Check the "${elName}" checkbox`
+            : `Check the ${elType} input`;
+        } else if (type === 'select') {
+          richDescription = elName 
+            ? `Select "${processedValue}" from the "${elName}" dropdown`
+            : `Select "${processedValue}" from dropdown`;
+        } else if (type === 'upload') {
+          richDescription = `Upload file to "${elName || tagName}"`;
+        } else if (type === 'click') {
+          richDescription = elName 
+            ? `Click the "${elName}" ${tagName}`
+            : `Click on ${tagName}`;
+        } else if (type === 'assertText') {
+          richDescription = `Assert page contains "${elText}"`;
+        } else {
+          richDescription = elName ? `${type} "${elName}"` : `${type} on ${tagName}`;
+        }
+
         const step = {
           id: generateId(),
           type,
           selector: bestSelector,
+          fallbacks: fallbacks || [],
           value: processedValue,
-          description: processedValue ? (type === 'upload' ? `Upload file ${processedValue}` : `Fill "${processedValue}" into ${tagName}`) : `Click on ${tagName}`,
+          description: richDescription,
           order: state.steps.length,
         };
         
@@ -623,28 +868,50 @@ async function handleScan() {
   
   let fullUrl = path.startsWith('http') ? path : `${envUrl}${path.startsWith('/') ? path : '/' + path}`;
 
-  // If the URL accidentally contains the old proxy prefix, strip it
   if (fullUrl.includes('/api/proxy?url=')) {
     const match = fullUrl.match(/[?&]url=([^&]+)/);
     if (match) {
       fullUrl = decodeURIComponent(match[1]);
-      dom.urlInput.value = fullUrl; // Update UI to reflect the clean URL
+      dom.urlInput.value = fullUrl;
     }
   }
-  // Open the visual inspector in a new window/tab using an alternative origin (localhost vs 127.0.0.1)
-  // to prevent Chromium from syncing zoom levels between the two windows.
-  const origin = window.location.origin;
-  let altOrigin = origin;
-  if (origin.includes('127.0.0.1')) {
-    altOrigin = origin.replace('127.0.0.1', 'localhost');
-  } else if (origin.includes('localhost')) {
-    altOrigin = origin.replace('localhost', '127.0.0.1');
+
+  showToast('Starting Playwright Chrome...', 'info');
+
+  try {
+    const res = await fetch('http://localhost:3001/api/inspector/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: fullUrl })
+    });
+    if (!res.ok) throw new Error(await res.text());
+  } catch (err) {
+    showToast(`Failed to start inspector: ${err.message}`, 'error');
+    return;
   }
 
-  const fwPath = state.settings.frameworkPath || '';
-  const t = new Date().getTime();
-  const inspectorUrl = `${altOrigin}/inspector.html?v=${t}&url=${encodeURIComponent(fullUrl)}&fwPath=${encodeURIComponent(fwPath)}`;
-  window.open(inspectorUrl, '_blank', 'width=1200,height=800');
+  if (window.inspectorEventSource) {
+    window.inspectorEventSource.close();
+  }
+  
+  const eventSource = new EventSource('http://localhost:3001/api/inspector/stream');
+  window.inspectorEventSource = eventSource;
+  
+  eventSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === 'CONNECTED') {
+         showToast('Chrome Browser Connected', 'success');
+      } else if (data.type === 'BROWSER_CLOSED') {
+         showToast('Chrome Browser Closed', 'warning');
+         eventSource.close();
+      } else if (data.type === 'ELEMENT_CLICKED' || data.type === 'INPUT_CHANGED' || data.type === 'URL_CHANGED') {
+        window.dispatchEvent(new MessageEvent('message', { data }));
+      }
+    } catch (err) {
+      console.error('SSE Error:', err);
+    }
+  };
 
   let stepValue = path;
   if (path.startsWith('http')) {
@@ -653,7 +920,6 @@ async function handleScan() {
     stepValue = '/' + path;
   }
 
-  // Auto-add navigation step if there are no steps yet
   if (state.steps.length === 0) {
     state.steps.push({
       id: generateId(),
@@ -714,6 +980,8 @@ function renderElements() {
       { label: 'role', value: sels.byRole },
       { label: 'label', value: sels.byLabel },
       { label: 'placeholder', value: sels.byPlaceholder },
+      { label: 'alt', value: sels.byAltText },
+      { label: 'title', value: sels.byTitle },
       { label: 'text', value: sels.byText },
       { label: 'id', value: sels.byId },
       { label: 'css', value: sels.css },
@@ -893,23 +1161,36 @@ function openModal(editStep = null) {
   state.editingStepId = editStep ? editStep.id : null;
 
   dom.modal.classList.remove('hidden');
-  renderSelectorChoices(null);
 
   if (editStep) {
+    renderSelectorChoices(editStep.fallbacks || [], editStep.selector);
     dom.stepType.value = editStep.type;
     dom.stepSelector.value = editStep.selector;
     dom.stepValue.value = editStep.value;
     if (dom.stepDelay) dom.stepDelay.value = editStep.delay !== undefined ? editStep.delay : '';
     if (dom.stepWaitUntil) dom.stepWaitUntil.value = editStep.waitUntil || '';
     dom.stepDescription.value = editStep.description;
+    if (dom.stepOptional) dom.stepOptional.checked = !!editStep.optional;
+    if (editStep.type === 'ifElse') {
+      if (dom.ifElseGroup) dom.ifElseGroup.classList.remove('hidden');
+      if (dom.stepIfAction) dom.stepIfAction.value = editStep.ifAction || '';
+      if (dom.stepElseAction) dom.stepElseAction.value = editStep.elseAction || '';
+    } else {
+      if (dom.ifElseGroup) dom.ifElseGroup.classList.add('hidden');
+    }
     dom.modalAdd.textContent = 'Update Step';
   } else {
+    renderSelectorChoices([]);
     dom.stepType.value = 'click';
     dom.stepSelector.value = '';
     dom.stepValue.value = '';
     if (dom.stepDelay) dom.stepDelay.value = '';
     if (dom.stepWaitUntil) dom.stepWaitUntil.value = '';
     dom.stepDescription.value = '';
+    if (dom.stepOptional) dom.stepOptional.checked = false;
+    if (dom.ifElseGroup) dom.ifElseGroup.classList.add('hidden');
+    if (dom.stepIfAction) dom.stepIfAction.value = '';
+    if (dom.stepElseAction) dom.stepElseAction.value = '';
     dom.modalAdd.textContent = 'Add Step';
   }
 
@@ -917,10 +1198,12 @@ function openModal(editStep = null) {
   dom.stepSelector.focus();
 }
 
-function openModalWithSelector(selector, tagName, selectors = null) {
+function openModalWithSelector(selector, tagName, fallbacks = null) {
   dom.modal.classList.remove('hidden');
   state.editingStepId = null;
   state.insertIndex = null;
+
+  renderSelectorChoices(fallbacks || [], selector);
 
   // Auto-select step type based on element tag
   const typeMap = {
@@ -943,6 +1226,10 @@ function openModalWithSelector(selector, tagName, selectors = null) {
   if (dom.stepDelay) dom.stepDelay.value = '';
   if (dom.stepWaitUntil) dom.stepWaitUntil.value = '';
   dom.stepDescription.value = '';
+  if (dom.stepOptional) dom.stepOptional.checked = false;
+  if (dom.ifElseGroup) dom.ifElseGroup.classList.add('hidden');
+  if (dom.stepIfAction) dom.stepIfAction.value = '';
+  if (dom.stepElseAction) dom.stepElseAction.value = '';
   dom.modalAdd.textContent = 'Add Step';
 
   updateStepTypeFields();
@@ -951,7 +1238,11 @@ function openModalWithSelector(selector, tagName, selectors = null) {
 
 function closeModal() {
   dom.modal.classList.add('hidden');
+  if (dom.stepOptional) dom.stepOptional.checked = false;
+  if (dom.stepIfAction) dom.stepIfAction.value = '';
+  if (dom.stepElseAction) dom.stepElseAction.value = '';
   state.editingStepId = null;
+  state.insertIndex = null;
 }
 
 function updateStepTypeFields() {
@@ -974,6 +1265,11 @@ function updateStepTypeFields() {
   // Show/hide delay field
   if (dom.delayGroup) {
     dom.delayGroup.classList.toggle('hidden', type !== 'fill');
+  }
+
+  // Show/hide ifElse fields
+  if (dom.ifElseGroup) {
+    dom.ifElseGroup.classList.toggle('hidden', type !== 'ifElse');
   }
 
   // Update placeholder
@@ -1022,6 +1318,11 @@ function handleAddStep() {
       else delete step.delay;
       step.waitUntil = waitUntil;
       step.description = description;
+      step.optional = dom.stepOptional ? dom.stepOptional.checked : false;
+      if (type === 'ifElse') {
+        step.ifAction = dom.stepIfAction ? dom.stepIfAction.value : '';
+        step.elseAction = dom.stepElseAction ? dom.stepElseAction.value : '';
+      }
     }
     showToast('Step updated', 'success');
   } else {
@@ -1034,8 +1335,13 @@ function handleAddStep() {
       delay: type === 'fill' ? delay : undefined,
       waitUntil,
       description,
+      optional: dom.stepOptional ? dom.stepOptional.checked : false,
       order: state.steps.length,
     };
+    if (type === 'ifElse') {
+      step.ifAction = dom.stepIfAction ? dom.stepIfAction.value : '';
+      step.elseAction = dom.stepElseAction ? dom.stepElseAction.value : '';
+    }
     
     if (state.insertIndex !== null) {
       state.steps.splice(state.insertIndex, 0, step);
@@ -1082,9 +1388,35 @@ function renderSteps() {
   state.steps.forEach((step, index) => {
     const info = STEP_TYPE_INFO[step.type] || { emoji: '❓', label: step.type };
     const card = document.createElement('div');
-    card.className = `step-card${step.disabled ? ' step-card--disabled' : ''}`;
+
+    // Special rendering for section headers
+    if (step.type === 'sectionHeader') {
+      card.className = 'step-section-header';
+      card.dataset.index = index;
+      card.innerHTML = `
+        <div class="step-section-header__line"></div>
+        <span class="step-section-header__label">📌 ${escapeHtml(step.value || 'Section')}</span>
+        <div class="step-section-header__line"></div>
+        <button class="btn btn--delete-step" data-id="${step.id}" title="Delete section" style="margin-left:8px;opacity:0.5;">✕</button>
+      `;
+      fragment.appendChild(card);
+      return;
+    }
+
+    card.className = `step-card${step.disabled ? ' step-card--disabled' : ''}${step._healNeeded ? ' step-card--failed' : ''}`;
     card.draggable = true;
     card.dataset.index = index;
+
+    // Selector stability badge
+    const stability = getSelectorStability(step.selector || '');
+    const stabilityBadge = step.selector 
+      ? `<span title="Selector stability: ${stability.reason}" style="font-size:12px;cursor:help;">${stability.emoji}</span>`
+      : '';
+
+    // Re-heal button for failed steps
+    const rehealBtn = step._healNeeded 
+      ? `<button class="btn btn--reheal-step" data-id="${step.id}" title="Re-record this selector" style="background:#ef4444;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;">🔁 Re-heal</button>`
+      : '';
 
     let html = `
       <div class="step-card__header">
@@ -1094,7 +1426,9 @@ function renderSteps() {
           <span class="step-card__handle-dot"></span>
         </div>
         <input type="number" class="step-card__order-input" data-id="${step.id}" value="${index + 1}" min="1" max="${state.steps.length}" style="width: 46px; text-align: center; border: 1px solid var(--border-default); background: var(--bg-surface); color: var(--text-primary); border-radius: 4px; padding: 2px; font-size: var(--text-sm);" title="Edit order number" />
+        ${stabilityBadge}
         <span class="step-card__type step-card__type--${step.type}">${info.emoji} ${info.label}</span>
+        ${rehealBtn}
         <div class="step-card__actions" style="display: flex; align-items: center;">
           <label class="step-card__toggle-wrapper" title="${step.disabled ? 'Enable step' : 'Disable step'}" style="margin-top: 3px;">
             <input type="checkbox" class="btn--toggle-disable" data-id="${step.id}" ${step.disabled ? '' : 'checked'}>
@@ -1116,17 +1450,31 @@ function renderSteps() {
     // Body with details
     html += `<div class="step-card__body">`;
     if (step.selector) {
+      let selectorHtml = `<span class="step-card__value" title="${escapeHtml(step.selector)}">${escapeHtml(step.selector)}</span>`;
+      
+      if (step.fallbacks && step.fallbacks.length > 0) {
+        const allOptions = [step.selector, ...step.fallbacks.filter(f => f !== step.selector)];
+        const optionsHtml = allOptions.map(opt => `<option value="${escapeHtml(opt)}" ${opt === step.selector ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('');
+        selectorHtml = `
+          <select class="step-card__selector-dropdown" data-id="${step.id}" style="width: 100%; max-width: 400px; background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: 4px; padding: 2px 4px; font-family: monospace; font-size: 11px;">
+            ${optionsHtml}
+          </select>
+        `;
+      }
+
       html += `
         <div class="step-card__detail">
-          <span class="step-card__label">Selector</span>
-          <span class="step-card__value" title="${escapeHtml(step.selector)}">${escapeHtml(step.selector)}</span>
+          <span class="step-card__label" style="min-width:70px;">SELECTOR</span>
+          ${selectorHtml}
         </div>`;
     }
     if (step.value) {
+      // Detect variables like {{name}} and highlight them
+      const valHtml = escapeHtml(step.value).replace(/\{\{(\w+)\}\}/g, '<mark style="background:#fef3c7;color:#92400e;padding:0 3px;border-radius:3px;">{{$1}}</mark>');
       html += `
         <div class="step-card__detail">
           <span class="step-card__label">Value</span>
-          <span class="step-card__value" title="${escapeHtml(step.value)}">${escapeHtml(step.value)}</span>
+          <span class="step-card__value" title="${escapeHtml(step.value)}">${valHtml}</span>
         </div>`;
     }
     html += `</div>`;
@@ -1182,9 +1530,11 @@ function renderSteps() {
   });
 
   // Replace content
-  const existingCards = dom.stepsContainer.querySelectorAll('.step-card');
+  const currentScrollTop = dom.stepsContainer.scrollTop;
+  const existingCards = dom.stepsContainer.querySelectorAll('.step-card, .step-section-header');
   existingCards.forEach((c) => c.remove());
   dom.stepsContainer.appendChild(fragment);
+  dom.stepsContainer.scrollTop = currentScrollTop;
 
   // Bind edit/delete buttons
   dom.stepsContainer.querySelectorAll('.btn--edit-step').forEach((btn) => {
@@ -1192,6 +1542,21 @@ function renderSteps() {
       e.stopPropagation();
       const step = state.steps.find((s) => s.id === btn.dataset.id);
       if (step) openModal(step);
+    });
+  });
+
+  // Bind selector dropdown changes
+  dom.stepsContainer.querySelectorAll('.step-card__selector-dropdown').forEach((select) => {
+    select.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const step = state.steps.find((s) => s.id === select.dataset.id);
+      if (step) {
+        saveHistory();
+        step.selector = select.value;
+        saveStepsToStorage();
+        autoGenerate();
+        showToast('Selector updated', 'success');
+      }
     });
   });
 
@@ -1221,6 +1586,17 @@ function renderSteps() {
       const idx = parseInt(btn.dataset.index, 10);
       state.insertIndex = idx + 1;
       openModal();
+    });
+  });
+
+  // Re-heal: mark step as pending re-record, then the next inspector click updates it
+  dom.stepsContainer.querySelectorAll('.btn--reheal-step').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const step = state.steps.find((s) => s.id === btn.dataset.id);
+      if (!step) return;
+      showToast('🔁 Click the element in the inspector to re-record this selector', 'info');
+      state._rehealTargetId = step.id;
     });
   });
 
@@ -1321,34 +1697,71 @@ function clientSideGenerate(testName, steps) {
   lines.push(`import { test, expect } from '@playwright/test';`);
   lines.push('');
 
+
+
   if (state.disableAuth) {
     lines.push(`// Override global storage state to run completely unauthenticated for this file`);
     lines.push(`test.use({ storageState: { cookies: [], origins: [] } });`);
     lines.push('');
   }
 
-  lines.push(`test('${testName}', async ({ page }) => {`);
+  // Detect parameter variables {{varName}} in step values
+  const variables = new Set();
+  steps.forEach(step => {
+    if (step.value && typeof step.value === 'string') {
+      const matches = step.value.match(/\{\{(\w+)\}\}/g);
+      if (matches) matches.forEach(m => variables.add(m.replace(/[{}]/g, '')));
+    }
+  });
+
+  const varList = Array.from(variables);
+  if (varList.length > 0) {
+    lines.push(`// Data-driven test parameters`);
+    lines.push(`const testData = [`);
+    const defaultData = varList.map(v => `${v}: 'test_${v}'`).join(', ');
+    lines.push(`  { ${defaultData} },`);
+    lines.push(`];`);
+    lines.push('');
+    const args = ['page', ...varList].join(', ');
+    lines.push(`test.each(testData)('${testName} - data set', async ({ ${args} }) => {`);
+  } else {
+    lines.push(`test('${testName}', async ({ page }) => {`);
+  }
 
   const sortedSteps = [...steps].sort((a, b) => a.order - b.order);
 
-  for (const step of sortedSteps) {
+  for (let i = 0; i < sortedSteps.length; i++) {
+    const step = sortedSteps[i];
+    const nextStep = sortedSteps[i + 1];
+
     if (step.description) {
-      lines.push(`  // ${step.description}`);
+      lines.push(`  // ${step.description.replace(/\r?\n/g, '\\n')}`);
     }
     if (step.disabled) {
       lines.push(`  // [Disabled] ${generateStepLine(step)}`);
-    } else if (step.type === 'ifElse') {
-      const ifCode = step.ifAction ? step.ifAction.replace(/\n/g, '\n    ') : '';
-      const elseCode = step.elseAction ? step.elseAction.replace(/\n/g, '\n    ') : '';
-      let block = `  if (await ${step.selector}.isVisible()) {\n    ${ifCode}\n  }`;
-      if (elseCode) block += ` else {\n    ${elseCode}\n  }`;
-      lines.push(block);
     } else {
-      let line = generateStepLine(step);
-      if (step.optional) {
-        line = `if (await ${step.selector}.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)) {\n    ${line}\n  }`;
+      const isLocator = step.selector && step.selector.startsWith('page.');
+      const safeSel = step.selector ? JSON.stringify(step.selector) : '""';
+      const selectorExpr = isLocator ? step.selector : `page.locator(${safeSel})`;
+
+      if (step.type === 'ifElse') {
+        const ifCode = step.ifAction ? step.ifAction.replace(/\n/g, '\n    ') : '';
+        const elseCode = step.elseAction ? step.elseAction.replace(/\n/g, '\n    ') : '';
+        let block = `  if (await ${selectorExpr}.isVisible()) {\n    ${ifCode}\n  }`;
+        if (elseCode) block += ` else {\n    ${elseCode}\n  }`;
+        lines.push(block);
+      } else {
+        let line = generateStepLine(step);
+        if (step.optional) {
+          line = `if (await ${selectorExpr}.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)) {\n    ${line}\n  }`;
+        }
+        lines.push(`  ${line}`);
+
+        // Auto-inject smart wait after navigate steps
+        if (step.type === 'navigate') {
+          lines.push(`  await page.waitForLoadState('domcontentloaded');`);
+        }
       }
-      lines.push(`  ${line}`);
     }
     lines.push('');
   }
@@ -1359,11 +1772,21 @@ function clientSideGenerate(testName, steps) {
 }
 
 function generateStepLine(step) {
-  const { type, selector: sel, value: val } = step;
+  const { type, selector: sel, value: val, fallbacks } = step;
 
   const isLocator = sel.startsWith('page.');
   const safeSel = sel ? JSON.stringify(sel) : '""';
-  const safeVal = val ? JSON.stringify(val) : '""';
+  
+  let safeVal = val ? JSON.stringify(val) : '""';
+  if (val && typeof val === 'string' && val.includes('{{')) {
+    const justVarMatch = val.match(/^\{\{(\w+)\}\}$/);
+    if (justVarMatch) {
+      safeVal = justVarMatch[1]; // pure variable reference
+    } else {
+      safeVal = '`' + val.replace(/`/g, '\\`').replace(/\{\{(\w+)\}\}/g, '${$1}') + '`'; // template literal
+    }
+  }
+
   const selectorExpr = isLocator ? sel : `page.locator(${safeSel})`;
 
   switch (type) {
@@ -1410,6 +1833,8 @@ function generateStepLine(step) {
         : `await page.waitForSelector(${safeSel}${val ? `, { timeout: ${val} }` : ''});`;
     case 'waitForTimeout':
       return `await page.waitForTimeout(${val || 1000});`;
+    case 'waitForResponse':
+      return `await page.waitForResponse(resp => resp.url().includes(${safeVal}) && resp.status() === 200);`;
     case 'assertVisible':
       return `await expect(${selectorExpr}).toBeVisible();`;
     case 'assertText':
@@ -1420,6 +1845,10 @@ function generateStepLine(step) {
       return `await expect(page).toHaveURL(${safeVal});`;
     case 'screenshot':
       return `await page.screenshot({ path: ${val ? safeVal : '"screenshot.png"'}, fullPage: true });`;
+    case 'visualSnapshot':
+      return `await expect(page).toHaveScreenshot(${val ? safeVal : '"snapshot.png"'}, { maxDiffPixels: 100 });`;
+    case 'sectionHeader':
+      return `// ${'─'.repeat(40)}\n  // ${val || 'Section'}\n  // ${'─'.repeat(40)}`;
     default:
       return `// Unknown: ${type}`;
   }
@@ -1429,6 +1858,105 @@ function renderCode(code) {
   dom.emptyCode.classList.add('hidden');
   dom.codeBlock.classList.remove('hidden');
   dom.codeOutput.innerHTML = highlightCode(code);
+}
+
+// ============================================
+// NATURAL LANGUAGE STEP PARSER (#7)
+// ============================================
+function parseNaturalLanguageStep(text) {
+  const t = text.trim().toLowerCase();
+  let type = 'click', value = '', selector = '', description = text;
+
+  const fillMatch = text.match(/fill\s+(.+?)\s+(?:with|as)\s+["']?(.+?)["']?$/i);
+  const gotoMatch = text.match(/(?:go to|navigate to|open)\s+(.+)/i);
+  const clickMatch = text.match(/click\s+(?:on\s+)?(?:the\s+)?(.+)/i);
+  const checkMatch = text.match(/check\s+(?:the\s+)?(.+)/i);
+  const waitMatch = text.match(/wait\s+(\d+)/i);
+  const assertMatch = text.match(/assert\s+(.+?)\s+(?:is\s+)?visible/i);
+  const assertUrlMatch = text.match(/assert\s+url\s+(?:is\s+)?(.+)/i);
+  const sectionMatch = text.match(/^---\s*(.+?)\s*---$/i) || text.match(/^section[:\s]+(.+)/i);
+  const responseMatch = text.match(/wait\s+(?:for\s+)?(?:api|response)\s+(.+)/i);
+
+  if (fillMatch) {
+    type = 'fill';
+    description = `Fill the "${fillMatch[1]}" field with "${fillMatch[2]}"`;
+    value = fillMatch[2];
+  } else if (gotoMatch) {
+    type = 'navigate';
+    value = gotoMatch[1].replace(/["']/g, '').trim();
+    description = `Navigate to ${value}`;
+    selector = value;
+  } else if (checkMatch) {
+    type = 'check';
+    description = `Check the "${checkMatch[1]}" checkbox`;
+  } else if (waitMatch) {
+    type = 'waitForTimeout';
+    value = waitMatch[1];
+    description = `Wait ${value}ms`;
+  } else if (assertUrlMatch) {
+    type = 'assertUrl';
+    value = assertUrlMatch[1].replace(/["']/g, '').trim();
+    description = `Assert URL is ${value}`;
+  } else if (assertMatch) {
+    type = 'assertVisible';
+    description = `Assert "${assertMatch[1]}" is visible`;
+  } else if (responseMatch) {
+    type = 'waitForResponse';
+    value = responseMatch[1].replace(/["']/g, '').trim();
+    description = `Wait for API response: ${value}`;
+  } else if (sectionMatch) {
+    type = 'sectionHeader';
+    value = sectionMatch[1];
+    description = value;
+  } else if (clickMatch) {
+    type = 'click';
+    description = `Click the "${clickMatch[1]}"`;
+  }
+
+  return { type, selector, value, description, needsSelector: type !== 'navigate' && type !== 'waitForTimeout' && type !== 'waitForResponse' && type !== 'assertUrl' && type !== 'sectionHeader' };
+}
+
+// ============================================
+// PAGE OBJECT MODEL EXPORT (#3)
+// ============================================
+function generatePageObjectModel(testName, steps) {
+  const className = testName.replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '') + 'Page';
+  const lines = [];
+  lines.push(`import { Page } from '@playwright/test';`);
+  lines.push('');
+  lines.push(`export class ${className} {`);
+  lines.push(`  constructor(public page: Page) {}`);
+  lines.push('');
+
+  const sortedSteps = [...steps].filter(s => !s.disabled && s.type !== 'sectionHeader').sort((a, b) => a.order - b.order);
+  
+  sortedSteps.forEach((step, i) => {
+    const info = STEP_TYPE_INFO[step.type] || { label: step.type };
+    const fnName = `step${i + 1}_${step.type}${step.description ? '_' + step.description.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20) : ''}`;
+    const line = generateStepLine(step);
+    if (step.description) lines.push(`  /** ${step.description} */`);
+    if (step.type === 'fill') {
+      lines.push(`  async ${fnName}(value: string = ${JSON.stringify(step.value || '')}) {`);
+      lines.push(`    ${line.replace(JSON.stringify(step.value || ''), 'value')}`);
+    } else {
+      lines.push(`  async ${fnName}() {`);
+      lines.push(`    ${line}`);
+    }
+    lines.push(`  }`);
+    lines.push('');
+  });
+
+  lines.push(`  /** Run all steps in order */`);
+  lines.push(`  async runAll() {`);
+  sortedSteps.forEach((step, i) => {
+    const fnName = `step${i + 1}_${step.type}${step.description ? '_' + step.description.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20) : ''}`;
+    if (step.type === 'fill') lines.push(`    await this.${fnName}();`);
+    else lines.push(`    await this.${fnName}();`);
+  });
+  lines.push(`  }`);
+  lines.push(`}`);
+
+  return lines.join('\n');
 }
 
 // ============================================
@@ -1908,6 +2436,30 @@ async function handleRunExecution() {
                   dom.runnerScreenshotFrame.classList.remove('hidden');
                 }
               }
+            } else if (event.type === 'auto_healed') {
+              const step = state.steps.find(s => s.id === event.id);
+              if (step) {
+                step.selector = event.newSelector;
+                const row = document.getElementById(`runner-step-row-${event.id}`);
+                if (row) {
+                  // Add a sparkle badge and update the text
+                  const details = row.querySelector('.runner-step-row__details');
+                  const healDiv = document.createElement('div');
+                  healDiv.className = 'runner-step-row__healed';
+                  healDiv.innerHTML = `<span style="color: #10b981; font-weight: bold;">✨ Auto-Healed:</span> ${escapeHtml(event.newSelector)}`;
+                  healDiv.style.fontSize = '11px';
+                  healDiv.style.marginTop = '4px';
+                  details.appendChild(healDiv);
+                  
+                  // Update the original selector display
+                  const pre = row.querySelector('pre');
+                  if (pre) {
+                    pre.innerHTML = highlightCode(event.newSelector);
+                  }
+                }
+                saveStepsToStorage();
+                renderSteps();
+              }
             } else if (event.type === 'complete') {
               dom.runnerMockBrowser.classList.add('hidden');
               dom.runnerStatStatus.textContent = event.success ? 'Passed' : 'Failed';
@@ -2063,28 +2615,10 @@ function openModalWithSelectorAndValue(selector, tagName, value, selectors = nul
   renderSelectorChoices(selectors, selector);
 }
 
-function renderSelectorChoices(selectors, currentSelector = '') {
+function renderSelectorChoices(fallbacks, currentSelector = '') {
   dom.selectorChoicesDropdown.innerHTML = '';
   
-  if (!selectors) {
-    dom.selectorChoicesWrapper.classList.add('hidden');
-    return;
-  }
-
-  const selectorEntries = [
-    { label: 'testid', value: selectors.byTestId },
-    { label: 'role', value: selectors.byRole },
-    { label: 'label', value: selectors.byLabel },
-    { label: 'placeholder', value: selectors.byPlaceholder },
-    { label: 'text', value: selectors.byText },
-    { label: 'id', value: selectors.byId },
-    { label: 'css', value: selectors.css },
-    { label: 'xpath', value: selectors.xpath },
-  ];
-
-  const validEntries = selectorEntries.filter(e => e.value);
-
-  if (validEntries.length === 0) {
+  if (!fallbacks || fallbacks.length === 0) {
     dom.selectorChoicesWrapper.classList.add('hidden');
     return;
   }
@@ -2094,15 +2628,15 @@ function renderSelectorChoices(selectors, currentSelector = '') {
   // Add default option
   const defaultOption = document.createElement('option');
   defaultOption.value = '';
-  defaultOption.textContent = '-- Choose a captured selector style --';
+  defaultOption.textContent = '-- Choose an alternative selector --';
   defaultOption.disabled = true;
   defaultOption.selected = true;
   dom.selectorChoicesDropdown.appendChild(defaultOption);
 
-  validEntries.forEach(({ label, value }) => {
+  fallbacks.forEach((value) => {
     const option = document.createElement('option');
     option.value = value;
-    option.textContent = `${label.toUpperCase()}: ${value}`;
+    option.textContent = value;
     if (value === currentSelector) {
       option.selected = true;
       defaultOption.selected = false;

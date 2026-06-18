@@ -7,9 +7,9 @@ export interface TestStep {
   value: string;
   description: string;
   order: number;
-  delay?: number;
   waitUntil?: string;
   optional?: boolean;
+  fallbacks?: string[];
 }
 
 export type StepType =
@@ -43,6 +43,8 @@ export interface ScannedElement {
   placeholder: string;
   text: string;
   ariaLabel: string;
+  altText: string;
+  title: string;
   href: string;
   selectors: SelectorSet;
 }
@@ -52,6 +54,8 @@ export interface SelectorSet {
   byRole: string;
   byLabel: string;
   byPlaceholder: string;
+  byAltText: string;
+  byTitle: string;
   byText: string;
   css: string;
   xpath: string;

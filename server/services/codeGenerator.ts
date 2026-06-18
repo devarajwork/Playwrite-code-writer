@@ -47,7 +47,7 @@ function generateStepCode(step: TestStep): string {
           dest = urlObj.pathname + urlObj.search;
         } catch (e) {}
       }
-      return `await page.goto('${dest}');`;
+      return `await page.goto('${dest}');\n  await page.waitForLoadState('networkidle');`;
     }
 
     case 'click':
